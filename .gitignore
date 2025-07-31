@@ -1,0 +1,14 @@
+# Ignore environment variables
+.env
+
+# Ignore node modules (dependencies)
+node_modules/
+
+# Ignore OS/system files
+.DS_Store
+
+# Optional: log files or temporary builds
+*.log
+dist/
+build/
+
