@@ -109,16 +109,21 @@ async function fetchArticles() {
   return data;
 }
 
-//debug messages
-// const status = document.getElementById("status");
-// console.log("Initial status:", status.textContent);
-// status.textContent = "This is a test update!";
+
 
 
 async function renderArticles() {
+
+  console.log("📦 renderArticles() started");
+
+const headlinesDiv = document.getElementById("headlines");
+const status = document.getElementById("status");
+
+console.log("headlinesDiv exists?", !!headlinesDiv);
+console.log("status exists?", !!status);
+
   const articles = await fetchArticles();
-  const headlinesDiv = document.getElementById("headlines");
-  const status = document.getElementById("status");
+
 
   headlinesDiv.innerHTML = "";
 
@@ -179,53 +184,11 @@ async function speakText(text) {
   speechSynthesis.speak(utterance);
 }
 
-// function updateGrannyText(text) {
-//   const box = document.getElementById('grannyText');
-//   box.textContent = text;
-// }
-
-// ----------------------------
-// Serverless Function Trigger
-// ----------------------------
-
-async function getGrannyResponse(userPrompt = '') {
-  const news = await fetchArticles();
-
-  const res = await fetch("/.netlify/functions/granny", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ userPrompt, news })
-  });
-
-  const data = await res.json();
-  return data.response;
-}
-
-let isWaiting = false;
-
-// async function askGranny() {
-//   if (isWaiting) return;
-
-//   isWaiting = true;
-//   //updateGrannyText("Hang on, dear... I'm still thinking.");
-  
-//   const userPrompt = document.getElementById('userPrompt').value;
-//   const response = await getGrannyResponse(userPrompt);
-  
-//   updateGrannyText(response);
-//   speakText(response);
-
-//   setTimeout(() => { isWaiting = false; }, 5000);
-// }
-
-//document.getElementById("askGrannyButton").addEventListener("click", askGranny);
-
-// Initial fetch & read
 window.addEventListener('load', async () => {
-  //updateGrannyText("Granny is fetching the latest XR and AI gossip...");
-  const intro = await getGrannyResponse("What’s happening in XR and AI today?");
-  //updateGrannyText(intro);
-  speakText(intro);
-
-  await renderArticles(); // Display clickable headlines
+  try {
+    console.log("📰 Page loaded, calling renderArticles()");
+    await renderArticles();
+  } catch (err) {
+    console.error("🔥 Failed to render articles:", err);
+  }
 });
