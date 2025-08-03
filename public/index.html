@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Granny's XR News</title>
+  <style>
+    body { margin: 0; font-family: sans-serif; background: #fefefe; }
+    #status {
+      position: absolute;
+      top: 1rem;
+      left: 1rem;
+      font-size: 1.2rem;
+      background: rgba(255,255,255,0.9);
+      padding: 0.5rem;
+      border-radius: 8px;
+      color: #555;
+    }
+    #headlines {
+      position: absolute;
+      bottom: 1rem;
+      left: 1rem;
+      max-width: 400px;
+      background: rgba(255,255,255,0.9);
+      padding: 1rem;
+      border-radius: 8px;
+      overflow-y: auto;
+      max-height: 40vh;
+    }
+  </style>
+</head>
+<body>
+  <div id="status">Fetching the latest news…</div>
+  <div id="headlines"></div>
+
+  <script type="module" src="public/src/main.js"></script>
+</body>
+</html>
