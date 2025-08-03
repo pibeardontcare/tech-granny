@@ -1,2 +1,18 @@
 [functions]
 node_bundler = "esbuild"
+directory = "netlify/functions"
+
+[build]
+command = "npm run build"
+publish = "dist"
+
+
+
+[[redirects]]
+  from = "/articles"
+  to = "/.netlify/functions/articles"
+  status = 200
+
+
+
+

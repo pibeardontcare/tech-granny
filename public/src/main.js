@@ -2,6 +2,9 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
+console.log('Starting app...');
+console.log(THREE); // This should be a large object with all of Three.js
+
 const API_URL = '/.netlify/functions/articles';
 
 
