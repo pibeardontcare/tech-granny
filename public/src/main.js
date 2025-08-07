@@ -27,7 +27,9 @@ animate();
 function init() {
   // Scene setup
   scene = new THREE.Scene();
-  scene.background = new THREE.Color(0xf0f0f0);
+ 
+  scene.background = new THREE.Color(0x87CEEB); // light sky blue
+
 
   camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
   camera.position.set(0, 1.6, 3);
@@ -37,7 +39,7 @@ function init() {
   document.body.appendChild(renderer.domElement);
 
   // Lighting
-  const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 3.6);
+  const hemiLight = new THREE.HemisphereLight(0xffffff, 0x111111, 5.6);
   scene.add(hemiLight);
 
   const dirLight = new THREE.DirectionalLight(0xffffff, 1.6);
@@ -50,6 +52,31 @@ function init() {
   // Raycasting
   raycaster = new THREE.Raycaster();
   mouse = new THREE.Vector2();
+
+
+  //load the tree 
+  const treeLoader = new GLTFLoader();
+treeLoader.load('/models/tree.glb', (gltf) => {
+  const tree = gltf.scene;
+  tree.scale.set(0.01, 0.01, 0.01); // Adjust for size
+  tree.position.set(-1.5, -1, -1); // Place it to the side
+  scene.add(tree);
+}, undefined, (error) => {
+  console.error('Error loading tree model:', error);
+});
+
+  // Load Bench model
+const benchLoader = new GLTFLoader();
+benchLoader.load('/models/park_bench.glb', (gltf) => {
+  const bench = gltf.scene;
+  bench.scale.set(1, 1, 1);
+  bench.position.set(0, -1, 0); // Adjust as needed to fit Nana’s pose
+  bench.rotation.y = Math.PI; // Optional: rotate if needed
+  scene.add(bench);
+}, undefined, (error) => {
+  console.error('Error loading bench model:', error);
+});
+
 
   // Load Granny model
   const loader = new GLTFLoader();
@@ -82,7 +109,8 @@ function init() {
     });
 
     granny.scale.set(1, 1, 1);
-    granny.position.set(0, -0.8, 0);
+    // granny.position.set(0, -0.8, 0);
+    granny.position.set(0, -1, .45);
     scene.add(granny);
 
     mixer = new THREE.AnimationMixer(granny);
@@ -93,8 +121,13 @@ function init() {
   });
 
   // Floor
-  const floorGeometry = new THREE.PlaneGeometry(100, 100);
-  const floorMaterial = new THREE.MeshStandardMaterial({ color: 0x444444 });
+  const floorGeometry = new THREE.CircleGeometry(2.5, 64); // radius, segments
+
+  const floorMaterial = new THREE.MeshStandardMaterial({
+  color: 0x228B22, // forest green
+  roughness: 1,
+  metalness: 0
+});
   const floor = new THREE.Mesh(floorGeometry, floorMaterial);
   floor.rotation.x = -Math.PI / 2;
   floor.position.y = -1;
@@ -216,32 +249,6 @@ let currentAudio = null;
 let currentSpeakingId = 0;
 
 
-// async function speakText(text) {
-//   if (isSpeaking) {
-//     cancelSpeaking();
-//   }
-
-//   isSpeaking = true;
-
-//   try {
-//     if (useElevenLabs) {
-//       await speakWithElevenLabs(text);
-//     } else {
-//       await speakWithBrowserTTS(text);
-//     }
-//   } catch (err) {
-//     console.warn("🟡 Preferred voice failed, falling back", err);
-//     if (useElevenLabs) {
-//       await speakWithBrowserTTS(text); // fallback
-//     } else {
-//       console.warn("⚠️ Both voice systems failed.");
-//     }
-//   } finally {
-//     isSpeaking = false;
-//   }
-// }
-
-
 async function speakText(text) {
   cancelSpeaking(); // Always cancel previous audio
 
@@ -322,24 +329,6 @@ async function speakWithElevenLabs(text, speakId) {
     audio.play();
   });
 }
-
-// async function speakWithBrowserTTS(text) {
-//   const utterance = new SpeechSynthesisUtterance(text);
-//   const voices = await getPreferredVoice();
-//   const voice = voices.find(v =>
-//     v.name.includes("Tessa") || v.name.includes("Google UK English")
-//   );
-//   utterance.voice = voice || voices[0];
-//   utterance.rate = 0.9;
-//   utterance.pitch = 1.0;
-
-//   return new Promise((resolve) => {
-//     utterance.onend = resolve;
-//     utterance.onerror = resolve;
-//     speechSynthesis.speak(utterance);
-//   });
-// }
-
 
 async function speakWithBrowserTTS(text, speakId) {
   const utterance = new SpeechSynthesisUtterance(text);
