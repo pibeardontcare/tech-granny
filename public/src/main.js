@@ -212,9 +212,47 @@ for (const article of articles) {
   const title = article.title || "No title";
   const content = article.content || "No summary available.";
 
-  const el = document.createElement("p");
-  el.innerHTML = `<strong>${title}</strong><br><small>${article.source}</small>`;
-  el.style.cursor = "pointer";
+  // const el = document.createElement("p");
+  // el.innerHTML = `<strong>${title}</strong><br><small>${article.source}</small>`;
+  // el.style.cursor = "pointer";
+
+
+  const wrapper = document.createElement("div");
+wrapper.style.display = "flex";
+wrapper.style.alignItems = "center";
+wrapper.style.gap = "10px";
+wrapper.style.marginBottom = "0.75rem";
+
+// Headline block
+const el = document.createElement("div");
+el.innerHTML = `<strong>${title}</strong><br><small>${article.source}</small>`;
+el.style.cursor = "pointer";
+el.style.flex = "1";
+
+// Click-to-read button
+const linkBtn = document.createElement("button");
+linkBtn.textContent = "🔗 Read";
+linkBtn.style.padding = "4px 10px";
+linkBtn.style.fontSize = "0.9rem";
+linkBtn.style.cursor = "pointer";
+
+linkBtn.addEventListener("click", (e) => {
+  e.stopPropagation(); // Prevent triggering speech
+  window.open(article.url, '_blank');
+});
+
+// Listen on headline
+el.addEventListener("click", async () => {
+  cancelSpeaking();
+  console.log(`📥 Fetching full article from: ${article.url}`);
+  const fullText = await fetchFullArticleText(article.url);
+  const textToRead = fullText || `${title}. ${content}`;
+  await speakText(`Headline: ${title}. ${textToRead}`);
+});
+
+wrapper.appendChild(el);
+wrapper.appendChild(linkBtn);
+headlinesDiv.appendChild(wrapper);
 
   el.addEventListener("click", async () => {
     cancelSpeaking(); // ✅ stop current voice
@@ -468,4 +506,42 @@ window.addEventListener('DOMContentLoaded', () => {
   } else {
     console.error("❌ toggleVoiceBtn not found in DOM at DOMContentLoaded");
   }
+
+  // Google Voice "Read All" button
+const readAllBtn = document.getElementById("readAllWithGoogle");
+if (readAllBtn) {
+  readAllBtn.addEventListener("click", () => {
+    readAllWithGoogleVoice();
+  });
+  console.log("✅ Google Read All button listener attached");
+} else {
+  console.error("❌ readAllWithGoogle button not found in DOM");
+}
+
 });
+
+
+///read all button logic 
+async function readAllWithGoogleVoice() {
+  console.log("🗣️ Reading all articles with Google Voice");
+  if (!articles.length) {
+    console.warn("⚠️ No articles to read.");
+    return;
+  }
+
+  shouldStop = false;
+  isSpeaking = true;
+  useElevenLabs = false; // Force browser voice
+
+  for (let i = 0; i < articles.length; i++) {
+    if (shouldStop) break;
+
+    const article = articles[i];
+    const text = `Headline: ${article.title}. ${article.content}`;
+    currentArticleIndex = i;
+    await speakText(text); // Uses browser voice since ElevenLabs is off
+  }
+
+  isSpeaking = false;
+  currentArticleIndex = 0;
+}
