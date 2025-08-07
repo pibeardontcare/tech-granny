@@ -15,6 +15,17 @@ speechSynthesis.onvoiceschanged = () => {
 };
 
 
+function setPlaybackActive() {
+  isPlaying = true;
+  shouldStop = false;
+
+  const btn = document.getElementById("togglePlayBtn");
+  if (btn) {
+    btn.textContent = "⏸️ Pause";
+  }
+}
+
+
 
 
 let scene, camera, renderer, raycaster, mouse, mixer, granny;
@@ -147,6 +158,10 @@ function animate() {
 // News Fetching & Interaction
 // ----------------------------
 
+window.addEventListener('DOMContentLoaded', () => {
+  fetchElevenLabsCredits();
+  console.log("📰 DOM fully loaded, fetching credits left...");
+});
 
 
 async function fetchArticles() {
@@ -212,9 +227,6 @@ for (const article of articles) {
   const title = article.title || "No title";
   const content = article.content || "No summary available.";
 
-  // const el = document.createElement("p");
-  // el.innerHTML = `<strong>${title}</strong><br><small>${article.source}</small>`;
-  // el.style.cursor = "pointer";
 
 
   const wrapper = document.createElement("div");
@@ -257,6 +269,7 @@ headlinesDiv.appendChild(wrapper);
   el.addEventListener("click", async () => {
     cancelSpeaking(); // ✅ stop current voice
 
+    setPlaybackActive();
     console.log(`📥 Fetching full article from: ${article.url}`);
     const fullText = await fetchFullArticleText(article.url);
 
@@ -290,7 +303,7 @@ let currentSpeakingId = 0;
 async function speakText(text) {
   cancelSpeaking(); // Always cancel previous audio
 
-  const speakId = ++currentSpeakingId; // Increment ID for new call
+  const speakId = ++currentSpeakingId; 
   isSpeaking = true;
 
   try {
@@ -349,6 +362,11 @@ async function speakWithElevenLabs(text, speakId) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ text })
   });
+
+  if (response.status === 401) {
+  throw new Error("Unauthorized: ElevenLabs token missing or invalid.");
+}
+
 
   if (!response.ok) throw new Error(`TTS Netlify error: ${response.status}`);
 
@@ -420,10 +438,9 @@ async function togglePlayPause() {
     return;
   }
 
-  if (!isPlaying) {
-    isPlaying = true;
-    shouldStop = false;
-    btn.textContent = "⏸️ Pause";
+ if (!isPlaying) {
+  setPlaybackActive();
+
     console.log("▶️ Starting playback from index:", currentArticleIndex);
 
     setTimeout(() => {
@@ -485,6 +502,28 @@ async function fetchFullArticleText(articleUrl) {
 
 
 window.addEventListener('DOMContentLoaded', () => {
+  
+  //news panel logic
+  const newsPanel = document.getElementById("newsPanel");
+const showNewsBtn = document.getElementById("showNewsPanel");
+const closeNewsBtn = document.getElementById("closeNewsPanel");
+
+if (newsPanel && showNewsBtn && closeNewsBtn) {
+  closeNewsBtn.addEventListener("click", () => {
+    newsPanel.classList.add("hidden");
+    showNewsBtn.style.display = "block";
+  });
+
+  showNewsBtn.addEventListener("click", () => {
+    newsPanel.classList.remove("hidden");
+    showNewsBtn.style.display = "none";
+  });
+
+  // Show panel by default
+  newsPanel.classList.remove("hidden");
+  showNewsBtn.style.display = "none";
+}
+
   // Play/Pause button
   const playBtn = document.getElementById("togglePlayBtn");
   if (playBtn) {
@@ -531,6 +570,8 @@ async function readAllWithGoogleVoice() {
 
   shouldStop = false;
   isSpeaking = true;
+  setPlaybackActive(); 
+
   useElevenLabs = false; // Force browser voice
 
   for (let i = 0; i < articles.length; i++) {
@@ -544,4 +585,47 @@ async function readAllWithGoogleVoice() {
 
   isSpeaking = false;
   currentArticleIndex = 0;
+}
+
+// // display credits for elevenlabs voice 
+// async function fetchElevenLabsCredits() {
+//   try {
+//     const res = await fetch('/.netlify/functions/credits');
+//     const data = await res.json();
+
+//     const used = data.characterCount;
+//     const limit = data.characterLimit;
+//     const remaining = limit - used;
+
+//     const btn = document.getElementById("toggleVoiceBtn");
+//     if (btn) {
+//       btn.textContent = `🧠 Voice: ElevenLabs (${remaining.toLocaleString()} left)`;
+//     }
+//   } catch (err) {
+//     console.warn("❌ Failed to fetch ElevenLabs credits:", err);
+//   }
+// }
+async function fetchElevenLabsCredits() {
+  try {
+    const res = await fetch('/.netlify/functions/credits');
+    const data = await res.json();
+
+    const used = data.characterCount;
+    const limit = data.characterLimit;
+    const remaining = limit - used;
+
+    const btn = document.getElementById("elevenLabsBtn");
+    if (btn) {
+      if (remaining <= 0) {
+        btn.innerHTML = `🔴 Voice: ElevenLabs (0 left)`;
+        btn.disabled = true; // optional: disable the button
+      } else if (remaining <= 1000) {
+        btn.innerHTML = `🟠 Voice: ElevenLabs (${remaining.toLocaleString()} left)`;
+      } else {
+        btn.innerHTML = `🧠 Voice: ElevenLabs (${remaining.toLocaleString()} left)`;
+      }
+    }
+  } catch (err) {
+    console.warn("❌ Failed to fetch ElevenLabs credits:", err);
+  }
 }
