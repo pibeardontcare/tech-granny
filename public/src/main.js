@@ -68,9 +68,9 @@ function init() {
   //load the tree 
   const treeLoader = new GLTFLoader();
 treeLoader.load('/models/tree.glb', (gltf) => {
-  const tree = gltf.scene;
-  tree.scale.set(0.01, 0.01, 0.01); // Adjust for size
-  tree.position.set(-1.5, -1, -1); // Place it to the side
+  let tree = gltf.scene;
+  tree.scale.set(0.7, 0.7, 0.7); // Adjust for size
+  tree.position.set(-1.5, -1.5, -0.5); // Place it to the side
   scene.add(tree);
 }, undefined, (error) => {
   console.error('Error loading tree model:', error);
