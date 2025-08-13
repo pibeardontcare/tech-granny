@@ -2,6 +2,9 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
+import { gsap } from 'gsap';
+
+
 console.log('Starting app...');
 console.log(THREE); // This should be a large object with all of Three.js
 
@@ -28,12 +31,156 @@ function setPlaybackActive() {
 
 
 
-let scene, camera, renderer, raycaster, mouse, mixer, granny;
+
+let scene, camera, renderer, raycaster, mouse, mixer, granny, newspaper, controls;
+
 
 
 // Init scene
 init();
 animate();
+
+// newspaper helpoer funciton 
+function worldToScreen(vec3, camera, renderer) {
+  const v = vec3.clone().project(camera);
+  const halfW = renderer.domElement.clientWidth / 2;
+  const halfH = renderer.domElement.clientHeight / 2;
+  return { x: (v.x * halfW) + halfW, y: (-v.y * halfH) + halfH };
+}
+
+
+// make a newspaper plane
+const paperW = 0.34, paperH = 0.24;
+const newspaperGeo = new THREE.PlaneGeometry(paperW, paperH, 1, 1);
+const newspaperMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0 });
+newspaper = new THREE.Mesh(newspaperGeo, newspaperMat); // no const here
+newspaper.position.set(0, 0, 0.8);
+newspaper.rotation.set(-0.15, 0, 0);
+scene.add(newspaper);
+
+// call while the paper is shown
+function tick() {
+  requestAnimationFrame(tick);
+  if (mixer) mixer.update(0.016);
+  placeShowBtnAtPaper();
+  renderer.render(scene, camera);
+}
+tick();
+
+
+
+
+
+
+function getPlaneScreenRect(mesh, w, h){
+  const hw = w/2, hh = h/2;
+  const corners = [
+    new THREE.Vector3(-hw,  hh, 0),
+    new THREE.Vector3( hw,  hh, 0),
+    new THREE.Vector3( hw, -hh, 0),
+    new THREE.Vector3(-hw, -hh, 0),
+  ];
+  const pts = corners.map(v => mesh.localToWorld(v.clone()))
+                     .map(v => worldToScreen(v, camera, renderer));
+  const xs = pts.map(p=>p.x), ys = pts.map(p=>p.y);
+  const left = Math.min(...xs), right = Math.max(...xs);
+  const top  = Math.min(...ys), bottom= Math.max(...ys);
+  return { left, top, width: right-left, height: bottom-top, cx:(left+right)/2, cy:(top+bottom)/2 };
+}
+//2
+
+function placeShowBtnAtPaper(){
+  const btn = document.getElementById('showNewsPanel');
+  const panelHidden = document.getElementById('newsPanel')?.classList.contains('is-hidden');
+  if (!btn || !panelHidden || !newspaper) return;
+
+  const r = getPlaneScreenRect(newspaper, 0.34, 0.24);
+  btn.style.position = 'fixed';            // <-- add this
+  btn.style.left   = `${r.left}px`;
+  btn.style.top    = `${r.top}px`;
+  btn.style.width  = `${r.width}px`;
+  btn.style.height = `${r.height}px`;
+  btn.style.display = 'block';
+}
+
+// function placeShowBtnAtPaper(){
+//   const btn = document.getElementById('showNewsPanel');
+//   const panelHidden = document.getElementById('newsPanel')?.classList.contains('is-hidden');
+//   if (!btn || !panelHidden || !newspaper) return;
+
+//   const r = getPlaneScreenRect(newspaper, 0.34, 0.24); // your plane size
+//   btn.style.left   = `${r.left}px`;
+//   btn.style.top    = `${r.top}px`;
+//   btn.style.width  = `${r.width}px`;
+//   btn.style.height = `${r.height}px`;
+//   btn.style.display = 'block';
+// }
+
+
+async function morphPanelToButton(){
+  const panel = document.getElementById('newsPanel');
+  const btn   = document.getElementById('showNewsPanel');
+  const rect  = panel.getBoundingClientRect();
+  const target= getPlaneScreenRect(newspaper, 0.34, 0.24);
+
+  // lock panel
+  panel.style.willChange = 'transform,opacity';
+  panel.style.transformOrigin = 'top left';
+  panel.style.position='fixed';
+  panel.style.left = rect.left+'px';
+  panel.style.top  = rect.top +'px';
+  panel.style.width= rect.width+'px';
+  panel.style.height=rect.height+'px';
+
+  // reveal button at the paper
+  btn.style.display = 'block';
+  placeShowBtnAtPaper();
+  btn.style.opacity = 0;
+
+  await Promise.all([
+    gsap.to(panel, {
+      duration:.45, ease:'power2.inOut', opacity:0,
+      onUpdate(){
+        const tX = target.cx - (rect.left + rect.width/2);
+        const tY = target.cy - (rect.top  + rect.height/2);
+        const sX = target.width/rect.width, sY = target.height/rect.height;
+        panel.style.transform = `translate(${tX}px,${tY}px) scale(${sX},${sY})`;
+      },
+      onComplete(){
+        panel.classList.add('is-hidden');
+        panel.style.transform=''; panel.style.opacity='';
+        panel.style.position=''; panel.style.left=''; panel.style.top='';
+        panel.style.width=''; panel.style.height=''; panel.style.willChange='';
+      }
+    }),
+    gsap.to(btn, { duration:.45, ease:'power2.inOut', opacity:1 })
+  ]);
+}
+
+function showMenuFromButton(){
+  const panel = document.getElementById('newsPanel');
+  const btn   = document.getElementById('showNewsPanel');
+  const target= getPlaneScreenRect(newspaper, 0.34, 0.24);
+
+  // start panel at the button’s rect
+  const full = panel.getBoundingClientRect();
+  panel.classList.remove('is-hidden');
+  panel.style.position='fixed';
+  panel.style.left=full.left+'px'; panel.style.top=full.top+'px';
+  panel.style.width=full.width+'px'; panel.style.height=full.height+'px';
+  panel.style.transformOrigin='top left';
+  const sX = target.width/full.width, sY = target.height/full.height;
+  const tX = target.cx - (full.left + full.width/2);
+  const tY = target.cy - (full.top  + full.height/2);
+  panel.style.transform = `translate(${tX}px,${tY}px) scale(${sX},${sY})`;
+  panel.style.opacity = 0;
+
+  gsap.to(panel, { duration:.45, opacity:1, clearProps:'transform', ease:'power2.out',
+    onComplete(){ panel.style.position=''; panel.style.left=''; panel.style.top='';
+                  panel.style.width=''; panel.style.height=''; }});
+  gsap.to(btn,   { duration:.3,  opacity:0, onComplete(){ btn.style.display='none'; }});
+}
+
 
 function init() {
   // Scene setup
@@ -43,8 +190,12 @@ function init() {
 
 
   camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
-  camera.position.set(0, 1.6, 3);
-
+  // camera.position.set(0, 1.6, 3);
+ camera.position.set(
+  -0.13027635446298505,
+   0.1107977817900695,
+   3.9082043960702997
+);
   renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setSize(window.innerWidth, window.innerHeight);
   document.body.appendChild(renderer.domElement);
@@ -89,9 +240,10 @@ benchLoader.load('/models/park_bench.glb', (gltf) => {
 });
 
 
+
   // Load Granny model
   const loader = new GLTFLoader();
-  loader.load('/models/granny.glb', (gltf) => {
+  loader.load('/models/nana.glb', (gltf) => {
     granny = gltf.scene;
 
     gltf.scene.traverse((node) => {
@@ -149,20 +301,152 @@ benchLoader.load('/models/park_bench.glb', (gltf) => {
 }
 
 function animate() {
-  requestAnimationFrame(animate);
+   requestAnimationFrame(animate);
   if (mixer) mixer.update(0.016);
+  placeShowBtnAtPaper();       // keep the button “stuck” to the paper
   renderer.render(scene, camera);
 }
+
+
 
 // ----------------------------
 // News Fetching & Interaction
 // ----------------------------
 
+
 window.addEventListener('DOMContentLoaded', () => {
-  fetchElevenLabsCredits();
-  console.log("📰 DOM fully loaded, fetching credits left...");
+  console.log("[DOM] ready, wiring show/hide listeners");
+
+  const newsPanel    = document.getElementById("newsPanel");
+  const showNewsBtn  = document.getElementById("showNewsPanel");  // the 'text on paper'
+  const hideNewsBtn  = document.getElementById("hideNewsPanel");  // new 'Hide News' button in panel
+
+  if (!newsPanel || !showNewsBtn || !hideNewsBtn) {
+    console.error("[DOM] Missing one or more elements — check IDs: #newsPanel, #showNewsPanel, #hideNewsPanel");
+    return;
+  }
+
+  // Start CLOSED by default
+  newsPanel.classList.add("is-hidden");   // panel hidden
+  showNewsBtn.style.display = "block";    // paper text visible
+
+  // Click handlers
+  hideNewsBtn.addEventListener('click', (e) => {
+    e.preventDefault(); e.stopPropagation();
+    morphPanelToButton();                 // animate panel → paper
+  });
+
+  showNewsBtn.addEventListener('click', (e) => {
+    e.preventDefault(); e.stopPropagation();
+    showMenuFromButton();                 // animate paper → panel
+  });
 });
 
+// window.addEventListener('DOMContentLoaded', () => {
+//   console.log("[DOM] ready, wiring show/close listeners");
+
+
+
+//   const newsPanel   = document.getElementById("newsPanel");
+//   const showNewsBtn = document.getElementById("showNewsPanel");
+//   const closeNewsBtn= document.getElementById("closeNewsPanel");
+
+//   console.log("[DOM] found:", {
+//     newsPanel: !!newsPanel,
+//     showNewsBtn: !!showNewsBtn,
+//     closeNewsBtn: !!closeNewsBtn
+//   });
+
+  
+//   // Initial state: panel hidden, paper label visible
+//   newsPanel.classList.add("is-hidden");
+//   showNewsBtn.style.display = "block";
+
+//   if (!newsPanel || !showNewsBtn || !closeNewsBtn) {
+//     console.error("[DOM] Missing one or more elements — check your HTML IDs.");
+//     return;
+//   }
+
+//   // Initial state: panel visible, 'Show' button hidden (tweak to taste)
+//   newsPanel.classList.remove("is-hidden");   // make sure CSS uses .is-hidden
+//   showNewsBtn.style.display = "none";
+
+// closeNewsBtn.addEventListener('click', (e) => {
+//   e.preventDefault(); e.stopPropagation();
+//   morphPanelToButton();
+// });
+
+// showNewsBtn.addEventListener('click', (e) => {
+//   e.preventDefault(); e.stopPropagation();
+//   showMenuFromButton();
+// });
+
+// });
+
+
+// renderer.domElement.addEventListener('pointerdown', (ev) => {
+//   const rect = renderer.domElement.getBoundingClientRect();
+//   mouse.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
+//   mouse.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
+
+//   raycaster.setFromCamera(mouse, camera);
+//   const hits = raycaster.intersectObject(newspaper, true);
+
+//   if (hits.length) {
+//   showMenuFromButton();                    // opens panel from paper
+//   }
+
+//   console.log("[Raycast] pointerdown", { x: mouse.x.toFixed(2), y: mouse.y.toFixed(2), hits: hits.length });
+  
+
+
+//   // After you’ve framed the shot with OrbitControls:
+// const pos = camera.position.clone();
+// const rot = camera.rotation.clone();            // Euler (radians)
+// const tgt = controls?.target?.clone?.();        // if using OrbitControls
+
+// console.log('cam pos:', pos.x, pos.y, pos.z);
+// console.log('cam rot (rad):', rot.x, rot.y, rot.z);
+// if (tgt) console.log('controls target:', tgt.x, tgt.y, tgt.z);
+
+// // (Optional) also print degrees if easier to read:
+// console.log('cam rot (deg):',
+//   THREE.MathUtils.radToDeg(rot.x),
+//   THREE.MathUtils.radToDeg(rot.y),
+//   THREE.MathUtils.radToDeg(rot.z)
+// );
+
+
+//   if (hits.length) {
+//     console.log("[Raycast] Newspaper hit → show menu");
+//    /// showMenuFromNewspaper();
+//     const showBtn = document.getElementById("showNewsPanel");
+//     if (showBtn) showBtn.style.display = "none";
+//   }
+// });
+
+renderer.domElement.addEventListener('pointerdown', (ev) => {
+  const rect = renderer.domElement.getBoundingClientRect();
+  mouse.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
+  mouse.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
+
+  raycaster.setFromCamera(mouse, camera);
+  const hits = raycaster.intersectObject(newspaper, true);
+
+  // Open the panel only when the paper is clicked and the panel is currently closed
+  if (hits.length) {
+    ev.preventDefault();
+    ev.stopPropagation();
+
+    const panel = document.getElementById('newsPanel');
+    if (panel && panel.classList.contains('is-hidden')) {
+      showMenuFromButton();
+    }
+  }
+
+
+   console.log("[Raycast] pointerdown", { x: mouse.x.toFixed(2), y: mouse.y.toFixed(2), hits: hits.length });
+});
 
 async function fetchArticles() {
   console.log("📡 Fetching articles...");
@@ -288,6 +572,25 @@ headlinesDiv.appendChild(wrapper);
 
   headlinesDiv.appendChild(el);
 }
+}
+
+
+function showMenuFromNewspaper() {
+  const panel = document.getElementById('newsPanel');
+  const center = newspaper.getWorldPosition(new THREE.Vector3());
+  const { x, y } = worldToScreen(center, camera, renderer);
+
+  // start panel tiny at the plane, then expand
+  panel.classList.remove('is-hidden');
+  const rect = panel.getBoundingClientRect();
+  const tX = x - (rect.left + rect.width / 2);
+  const tY = y - (rect.top + rect.height / 2);
+  panel.style.transformOrigin = 'top left';
+  panel.style.transform = `translate(${tX}px, ${tY}px) scale(0.1)`;
+  panel.style.opacity = 0;
+
+  gsap.to(panel, { duration: 0.45, opacity: 1, clearProps: 'transform', ease: 'power2.out' });
+  gsap.to(newspaper.material, { duration: 0.3, opacity: 0, ease: 'power2.out' });
 }
 
 // ----------------------------
@@ -501,64 +804,6 @@ async function fetchFullArticleText(articleUrl) {
 }
 
 
-window.addEventListener('DOMContentLoaded', () => {
-  
-  //news panel logic
-  const newsPanel = document.getElementById("newsPanel");
-const showNewsBtn = document.getElementById("showNewsPanel");
-const closeNewsBtn = document.getElementById("closeNewsPanel");
-
-if (newsPanel && showNewsBtn && closeNewsBtn) {
-  closeNewsBtn.addEventListener("click", () => {
-    newsPanel.classList.add("hidden");
-    showNewsBtn.style.display = "block";
-  });
-
-  showNewsBtn.addEventListener("click", () => {
-    newsPanel.classList.remove("hidden");
-    showNewsBtn.style.display = "none";
-  });
-
-  // Show panel by default
-  newsPanel.classList.remove("hidden");
-  showNewsBtn.style.display = "none";
-}
-
-  // Play/Pause button
-  const playBtn = document.getElementById("togglePlayBtn");
-  if (playBtn) {
-    playBtn.addEventListener("click", togglePlayPause);
-    console.log("✅ Play/Pause button listener attached");
-  } else {
-    console.error("❌ togglePlayBtn not found in DOM at DOMContentLoaded");
-  }
-
-  // Voice toggle button
-  const voiceBtn = document.getElementById("toggleVoiceBtn");
-  if (voiceBtn) {
-    voiceBtn.addEventListener("click", () => {
-      useElevenLabs = !useElevenLabs;
-      voiceBtn.textContent = useElevenLabs ? "🧠 Voice: ElevenLabs" : "🎤 Voice: Google";
-      console.log("🔁 Voice preference switched to:", useElevenLabs ? "ElevenLabs" : "Browser TTS");
-    });
-    console.log("✅ Voice toggle button listener attached");
-  } else {
-    console.error("❌ toggleVoiceBtn not found in DOM at DOMContentLoaded");
-  }
-
-  // Google Voice "Read All" button
-const readAllBtn = document.getElementById("readAllWithGoogle");
-if (readAllBtn) {
-  readAllBtn.addEventListener("click", () => {
-    readAllWithGoogleVoice();
-  });
-  console.log("✅ Google Read All button listener attached");
-} else {
-  console.error("❌ readAllWithGoogle button not found in DOM");
-}
-
-});
-
 
 ///read all button logic 
 async function readAllWithGoogleVoice() {
@@ -587,24 +832,6 @@ async function readAllWithGoogleVoice() {
   currentArticleIndex = 0;
 }
 
-// // display credits for elevenlabs voice 
-// async function fetchElevenLabsCredits() {
-//   try {
-//     const res = await fetch('/.netlify/functions/credits');
-//     const data = await res.json();
-
-//     const used = data.characterCount;
-//     const limit = data.characterLimit;
-//     const remaining = limit - used;
-
-//     const btn = document.getElementById("toggleVoiceBtn");
-//     if (btn) {
-//       btn.textContent = `🧠 Voice: ElevenLabs (${remaining.toLocaleString()} left)`;
-//     }
-//   } catch (err) {
-//     console.warn("❌ Failed to fetch ElevenLabs credits:", err);
-//   }
-// }
 async function fetchElevenLabsCredits() {
   try {
     const res = await fetch('/.netlify/functions/credits');
@@ -629,3 +856,5 @@ async function fetchElevenLabsCredits() {
     console.warn("❌ Failed to fetch ElevenLabs credits:", err);
   }
 }
+
+
