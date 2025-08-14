@@ -30,11 +30,42 @@ function setPlaybackActive() {
 
 
 
+// Playback modes & Nana state
+let playMode = 'articles';         
+let nanaItems = [];               
+let currentNanaIndex = 0;
+let nanaIsPlaying = false;
+let nanaIsPreparing = false;
 
 
 let scene, camera, renderer, raycaster, mouse, mixer, granny, newspaper, controls;
 
 
+const NANA_ROUTE = '/.netlify/functions/nana_explain';
+
+// Call the Netlify route with a list of URLs (or pass values to guide Nana)
+async function nanaExplain(urls, values = []) {
+  const res = await fetch(NANA_ROUTE, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ urls, values })
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json(); // { count, doc, items }
+}
+
+// Convenience: download any text as a .md file
+function downloadMarkdown(text, filename = 'nana_explains.md') {
+  const blob = new Blob([text], { type: 'text/markdown' });
+  const url = URL.createObjectURL(blob);
+  const a = document.getElementById('downloadMd');
+  if (a) {
+    a.href = url;
+    a.download = filename;
+    a.style.display = 'inline';
+    a.textContent = '⬇️ Download markdown';
+  }
+}
 
 // Init scene
 init();
@@ -315,6 +346,8 @@ function animate() {
 
 
 window.addEventListener('DOMContentLoaded', () => {
+
+  
   console.log("[DOM] ready, wiring show/hide listeners");
 
   const newsPanel    = document.getElementById("newsPanel");
@@ -340,90 +373,121 @@ window.addEventListener('DOMContentLoaded', () => {
     e.preventDefault(); e.stopPropagation();
     showMenuFromButton();                 // animate paper → panel
   });
+
+    // ---- Nana explain wiring (place here, at end of DOMContentLoaded) ----
+
+    // ---- Nana explain wiring ----
+const nanaBtn = document.getElementById('nanaExplainBtn');
+const nanaOut = document.getElementById('nanaExplainOut'); // optional preview area
+setNanaBtnLabel();
+
+nanaBtn?.addEventListener('click', async () => {
+  // Toggle pause if currently playing
+  if (nanaIsPlaying) {
+    stopNana();
+    return;
+  }
+
+  // If not playing: prepare & start
+  stopAllAudio();                       // stop headlines if they were speaking
+
+  // Generate only once, then reuse (unless you want to regenerate every time)
+  if (!nanaItems.length && !nanaIsPreparing) {
+    nanaIsPreparing = true;
+    setNanaBtnLabel();
+
+    const status = document.getElementById('status');
+    if (status) status.textContent = 'Nana is reading and thinking…';
+
+    try {
+      const urls = articles.map(a => a.url).filter(Boolean);
+      const values = [
+        "human-centered design",
+        "rapid prototyping",
+        "storytelling impact",
+        "ethics & attribution",
+        "open formats",
+        "accessibility & performance"
+      ];
+      // Keep it small for cost/speed; server also caps to 3
+      nanaItems = await nanaExplain(urls.slice(0, 3), values);  // [{title,url,md}]
+      if (nanaOut && nanaItems.length) {
+        // optional: show the text in the panel (not required for speaking)
+        nanaOut.textContent = nanaItems.map(i => `${i.title}\n\n${i.md}`).join('\n\n---\n\n');
+      }
+    } catch (err) {
+      console.error('nana_explain failed:', err);
+      if (status) status.textContent = 'Failed to synthesize.';
+    } finally {
+      nanaIsPreparing = false;
+      setNanaBtnLabel();
+    }
+  }
+
+  if (!nanaItems.length) {
+    const status = document.getElementById('status');
+    if (status) status.textContent = 'No Nana analysis.';
+    return;
+  }
+
+  currentNanaIndex = 0;
+  startNanaPlayback();
+});
+// ------------------------------
+
+  // const nanaBtn = document.getElementById('nanaExplainBtn');
+  // const nanaOut = document.getElementById('nanaExplainOut');
+
+  // nanaBtn?.addEventListener('click', async () => {
+  //   if (!articles.length) return;
+  //   nanaOut.textContent = 'Thinking…';
+
+  //   try {
+  //     const urls = articles.map(a => a.url).filter(Boolean);
+  //     const values = [
+  //       "human-centered design",
+  //       "rapid prototyping",
+  //       "storytelling impact",
+  //       "ethics & attribution",
+  //       "open formats",
+  //       "accessibility & performance"
+  //     ];
+  //     const data = await nanaExplain(urls, values);
+  //     nanaOut.textContent = data.doc || 'No analysis.';
+  //     if (data.doc) downloadMarkdown(data.doc);
+  //   } catch (err) {
+  //     console.error('nana_explain failed:', err);
+  //     nanaOut.textContent = 'Failed to synthesize.';
+  //   }
+  // });
+  // ----------------------------------------------------------------------
+// ---- playback + voice buttons ----
+const playBtn   = document.getElementById('togglePlayBtn');
+const readAll   = document.getElementById('readAllBtn');
+const voiceBtn  = document.getElementById('elevenLabsBtn');
+
+playBtn?.addEventListener('click', togglePlayPause);
+
+readAll?.addEventListener('click', async () => {
+  await readAllWithGoogleVoice(); // uses browser TTS
 });
 
-// window.addEventListener('DOMContentLoaded', () => {
-//   console.log("[DOM] ready, wiring show/close listeners");
+voiceBtn?.addEventListener('click', async () => {
+  // flip voice engine
+  cancelSpeaking();
+  useElevenLabs = !useElevenLabs;
 
+  // update label (and optionally check credits)
+  if (useElevenLabs) {
+    voiceBtn.textContent = '🧠 Voice: ElevenLabs';
+    fetchElevenLabsCredits().catch(console.warn);
+  } else {
+    voiceBtn.textContent = '🔈 Voice: Browser';
+  }
+});
 
+});
 
-//   const newsPanel   = document.getElementById("newsPanel");
-//   const showNewsBtn = document.getElementById("showNewsPanel");
-//   const closeNewsBtn= document.getElementById("closeNewsPanel");
-
-//   console.log("[DOM] found:", {
-//     newsPanel: !!newsPanel,
-//     showNewsBtn: !!showNewsBtn,
-//     closeNewsBtn: !!closeNewsBtn
-//   });
-
-  
-//   // Initial state: panel hidden, paper label visible
-//   newsPanel.classList.add("is-hidden");
-//   showNewsBtn.style.display = "block";
-
-//   if (!newsPanel || !showNewsBtn || !closeNewsBtn) {
-//     console.error("[DOM] Missing one or more elements — check your HTML IDs.");
-//     return;
-//   }
-
-//   // Initial state: panel visible, 'Show' button hidden (tweak to taste)
-//   newsPanel.classList.remove("is-hidden");   // make sure CSS uses .is-hidden
-//   showNewsBtn.style.display = "none";
-
-// closeNewsBtn.addEventListener('click', (e) => {
-//   e.preventDefault(); e.stopPropagation();
-//   morphPanelToButton();
-// });
-
-// showNewsBtn.addEventListener('click', (e) => {
-//   e.preventDefault(); e.stopPropagation();
-//   showMenuFromButton();
-// });
-
-// });
-
-
-// renderer.domElement.addEventListener('pointerdown', (ev) => {
-//   const rect = renderer.domElement.getBoundingClientRect();
-//   mouse.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
-//   mouse.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
-
-//   raycaster.setFromCamera(mouse, camera);
-//   const hits = raycaster.intersectObject(newspaper, true);
-
-//   if (hits.length) {
-//   showMenuFromButton();                    // opens panel from paper
-//   }
-
-//   console.log("[Raycast] pointerdown", { x: mouse.x.toFixed(2), y: mouse.y.toFixed(2), hits: hits.length });
-  
-
-
-//   // After you’ve framed the shot with OrbitControls:
-// const pos = camera.position.clone();
-// const rot = camera.rotation.clone();            // Euler (radians)
-// const tgt = controls?.target?.clone?.();        // if using OrbitControls
-
-// console.log('cam pos:', pos.x, pos.y, pos.z);
-// console.log('cam rot (rad):', rot.x, rot.y, rot.z);
-// if (tgt) console.log('controls target:', tgt.x, tgt.y, tgt.z);
-
-// // (Optional) also print degrees if easier to read:
-// console.log('cam rot (deg):',
-//   THREE.MathUtils.radToDeg(rot.x),
-//   THREE.MathUtils.radToDeg(rot.y),
-//   THREE.MathUtils.radToDeg(rot.z)
-// );
-
-
-//   if (hits.length) {
-//     console.log("[Raycast] Newspaper hit → show menu");
-//    /// showMenuFromNewspaper();
-//     const showBtn = document.getElementById("showNewsPanel");
-//     if (showBtn) showBtn.style.display = "none";
-//   }
-// });
 
 renderer.domElement.addEventListener('pointerdown', (ev) => {
   const rect = renderer.domElement.getBoundingClientRect();
@@ -735,6 +799,14 @@ async function togglePlayPause() {
     return;
   }
 
+  // If Nana is currently explaining, stop her and then proceed with headlines
+if (nanaIsPlaying) {
+  stopNana();
+  const btn = document.getElementById("togglePlayBtn");
+  if (btn) btn.textContent = "▶️ Play";
+  // continue into the rest of your headline toggle logic...
+}
+
   const btn = document.getElementById("togglePlayBtn");
   if (!btn) {
     console.error("🚫 Button not found at time of toggle.");
@@ -858,3 +930,63 @@ async function fetchElevenLabsCredits() {
 }
 
 
+//jhelpewrs
+
+
+function setNanaBtnLabel() {
+  const btn = document.getElementById('nanaExplainBtn');
+  if (!btn) return;
+  if (nanaIsPreparing) {
+    btn.textContent = '⏳ Preparing Nana…';
+    btn.disabled = true;
+    return;
+  }
+  btn.disabled = false;
+  btn.textContent = nanaIsPlaying ? '⏸️ Pause explaining' : '▶️ Nana’s Take';
+}
+
+function stopAllAudio() {
+  shouldStop = true;
+  isSpeaking = false;
+  speechSynthesis.cancel();
+  if (currentAudio) {
+    currentAudio.pause();
+    currentAudio.src = '';
+    currentAudio = null;
+  }
+}
+
+function stopNana() {
+  nanaIsPlaying = false;
+  shouldStop = true;
+  setNanaBtnLabel();
+}
+
+function startNanaPlayback() {
+  playMode = 'nana';
+  nanaIsPlaying = true;
+  shouldStop = false;
+  setNanaBtnLabel();
+  playNanaFrom(currentNanaIndex);
+}
+
+
+async function playNanaFrom(index) {
+  for (; index < nanaItems.length; index++) {
+    if (shouldStop) break;
+
+    const item = nanaItems[index];
+    const speech = `${item.title}. ${mdToSpeech(item.md)}`; // title + cleaned content
+    currentNanaIndex = index;
+
+    await speakText(speech);
+  }
+
+  if (!shouldStop) {
+    nanaIsPlaying = false;
+    currentNanaIndex = 0;
+    setNanaBtnLabel();
+    const status = document.getElementById('status');
+    if (status) status.textContent = '✔️ Nana finished.';
+  }
+}
