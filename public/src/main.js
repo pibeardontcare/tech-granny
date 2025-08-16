@@ -1,77 +1,181 @@
+
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-
 import { gsap } from 'gsap';
 
-
 console.log('Starting app...');
-console.log(THREE); // This should be a large object with all of Three.js
+console.log(THREE);
 
 const API_URL = '/.netlify/functions/articles';
+const NANA_ROUTE = '/.netlify/functions/nana_explain';
+
+let scene, camera, renderer, raycaster, mouse, mixer, granny, newspaper;
 let shouldStop = false;
-let articles = [];
-// 👇 Add this to preload voices on page load
-speechSynthesis.getVoices(); // Trigger voice load
-speechSynthesis.onvoiceschanged = () => {
+let isSpeaking = false;
+let useElevenLabs = true;
+let currentAudio = null;
+let currentSpeakingId = 0;
 
-};
+let isPlaying = false;
+let currentArticleIndex = 0;
 
-
-function setPlaybackActive() {
-  isPlaying = true;
-  shouldStop = false;
-
-  const btn = document.getElementById("togglePlayBtn");
-  if (btn) {
-    btn.textContent = "⏸️ Pause";
-  }
-}
-
-
-
-// Playback modes & Nana state
-let playMode = 'articles';         
-let nanaItems = [];               
+let playMode = 'articles';
+let nanaItems = [];          // [{ title, url, md, source }]
 let currentNanaIndex = 0;
 let nanaIsPlaying = false;
 let nanaIsPreparing = false;
 
+let articles = [];
 
-let scene, camera, renderer, raycaster, mouse, mixer, granny, newspaper, controls;
+// Preload browser voices early
+speechSynthesis.getVoices();
+speechSynthesis.onvoiceschanged = () => {};
 
-
-const NANA_ROUTE = '/.netlify/functions/nana_explain';
-
-// Call the Netlify route with a list of URLs (or pass values to guide Nana)
-async function nanaExplain(urls, values = []) {
+// ---------- Netlify daily blob helpers ----------
+async function upsertTodayNana(urls, values = []) {
+  // Appends any NEW urls to today’s blob (server de-dupes). Sequential on server.
   const res = await fetch(NANA_ROUTE, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ urls, values })
   });
   if (!res.ok) throw new Error(await res.text());
-  return res.json(); // { count, doc, items }
+  return res.json(); // { date, count, items, doc }
 }
 
-// Convenience: download any text as a .md file
-function downloadMarkdown(text, filename = 'nana_explains.md') {
-  const blob = new Blob([text], { type: 'text/markdown' });
-  const url = URL.createObjectURL(blob);
-  const a = document.getElementById('downloadMd');
-  if (a) {
-    a.href = url;
-    a.download = filename;
-    a.style.display = 'inline';
-    a.textContent = '⬇️ Download markdown';
-  }
+async function fetchTodayNanaDoc() {
+  const res = await fetch(NANA_ROUTE); // GET today’s blob
+  if (!res.ok) return null;
+  return res.json(); // { date, items, doc }
 }
 
-// Init scene
+
+// --- Nana cache helpers (GET first, POST only if needed) ---
+
+async function getCachedNana({ force = false } = {}) {
+  const url = force ? `${NANA_ROUTE}?force=true` : NANA_ROUTE;
+  const res = await fetch(url);
+  if (res.status === 404) return null;   // nothing cached yet
+  if (!res.ok) throw new Error(await res.text());
+  return res.json(); // { source, date?, items, doc, ... }
+}
+
+async function seedNanaWithArticles(urls, values = []) {
+  // Create/refresh today’s blob on the server with your URLs
+  const res = await fetch(NANA_ROUTE, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ urls, values })
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json(); // { source:'fresh', items, doc, ... } or your shape
+}
+
+// ---------- Scene ----------
 init();
 animate();
 
-// newspaper helpoer funciton 
+function init() {
+  scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x87CEEB);
+
+  camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+  camera.position.set(-0.13027635446298505, 0.1107977817900695, 3.9082043960702997);
+
+  renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  document.body.appendChild(renderer.domElement);
+
+  const hemiLight = new THREE.HemisphereLight(0xffffff, 0x111111, 5.6);
+  scene.add(hemiLight);
+
+  const dirLight = new THREE.DirectionalLight(0xffffff, 1.6);
+  dirLight.position.set(3, 10, 5);
+  scene.add(dirLight);
+
+  new OrbitControls(camera, renderer.domElement);
+
+  raycaster = new THREE.Raycaster();
+  mouse = new THREE.Vector2();
+
+  // Newspaper plane
+  const paperW = 0.34, paperH = 0.24;
+  const newspaperGeo = new THREE.PlaneGeometry(paperW, paperH, 1, 1);
+  const newspaperMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0 });
+  newspaper = new THREE.Mesh(newspaperGeo, newspaperMat);
+  newspaper.position.set(0, 0, 0.8);
+  newspaper.rotation.set(-0.15, 0, 0);
+  scene.add(newspaper);
+
+  // Models
+  const treeLoader = new GLTFLoader();
+  treeLoader.load('/models/tree.glb', (gltf) => {
+    const tree = gltf.scene;
+    tree.scale.set(0.7, 0.7, 0.7);
+    tree.position.set(-1.5, -1.5, -0.5);
+    scene.add(tree);
+  }, undefined, (e) => console.error('Error loading tree model:', e));
+
+  const benchLoader = new GLTFLoader();
+  benchLoader.load('/models/park_bench.glb', (gltf) => {
+    const bench = gltf.scene;
+    bench.scale.set(1, 1, 1);
+    bench.position.set(0, -1, 0);
+    bench.rotation.y = Math.PI;
+    scene.add(bench);
+  }, undefined, (e) => console.error('Error loading bench model:', e));
+
+  const loader = new GLTFLoader();
+  loader.load('/models/nana.glb', (gltf) => {
+    granny = gltf.scene;
+    gltf.scene.traverse((node) => {
+      if (node.isMesh) {
+        const mat = node.material;
+        if (mat && mat.isMeshBasicMaterial) {
+          node.material = new THREE.MeshStandardMaterial({
+            color: mat.color,
+            roughness: 0.8,
+            metalness: 0.1,
+          });
+        }
+        if (mat && mat.emissive) {
+          mat.emissive.setHex(0x000000);
+          mat.emissiveIntensity = 0;
+        }
+        if (mat && mat.color) mat.color.multiplyScalar(0.8);
+        mat.needsUpdate = true;
+      }
+    });
+    granny.scale.set(1, 1, 1);
+    granny.position.set(0, -1, .45);
+    scene.add(granny);
+
+    mixer = new THREE.AnimationMixer(granny);
+    const action = mixer.clipAction(gltf.animations[0]);
+    action.play();
+  }, undefined, (e) => console.error('Error loading granny model:', e));
+
+  // Floor
+  const floorGeometry = new THREE.CircleGeometry(2.5, 64);
+  const floorMaterial = new THREE.MeshStandardMaterial({ color: 0x228B22, roughness: 1, metalness: 0 });
+  const floor = new THREE.Mesh(floorGeometry, floorMaterial);
+  floor.rotation.x = -Math.PI / 2;
+  floor.position.y = -1;
+  scene.add(floor);
+
+  // Resize
+  window.addEventListener('resize', onWindowResize);
+}
+
+function animate() {
+  requestAnimationFrame(animate);
+  if (mixer) mixer.update(0.016);
+  placeShowBtnAtPaper();
+  renderer.render(scene, camera);
+}
+
+// ---------- 2D helpers (panel <-> paper) ----------
 function worldToScreen(vec3, camera, renderer) {
   const v = vec3.clone().project(camera);
   const halfW = renderer.domElement.clientWidth / 2;
@@ -79,31 +183,7 @@ function worldToScreen(vec3, camera, renderer) {
   return { x: (v.x * halfW) + halfW, y: (-v.y * halfH) + halfH };
 }
 
-
-// make a newspaper plane
-const paperW = 0.34, paperH = 0.24;
-const newspaperGeo = new THREE.PlaneGeometry(paperW, paperH, 1, 1);
-const newspaperMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0 });
-newspaper = new THREE.Mesh(newspaperGeo, newspaperMat); // no const here
-newspaper.position.set(0, 0, 0.8);
-newspaper.rotation.set(-0.15, 0, 0);
-scene.add(newspaper);
-
-// call while the paper is shown
-function tick() {
-  requestAnimationFrame(tick);
-  if (mixer) mixer.update(0.016);
-  placeShowBtnAtPaper();
-  renderer.render(scene, camera);
-}
-tick();
-
-
-
-
-
-
-function getPlaneScreenRect(mesh, w, h){
+function getPlaneScreenRect(mesh, w, h) {
   const hw = w/2, hh = h/2;
   const corners = [
     new THREE.Vector3(-hw,  hh, 0),
@@ -118,15 +198,14 @@ function getPlaneScreenRect(mesh, w, h){
   const top  = Math.min(...ys), bottom= Math.max(...ys);
   return { left, top, width: right-left, height: bottom-top, cx:(left+right)/2, cy:(top+bottom)/2 };
 }
-//2
 
-function placeShowBtnAtPaper(){
+function placeShowBtnAtPaper() {
   const btn = document.getElementById('showNewsPanel');
   const panelHidden = document.getElementById('newsPanel')?.classList.contains('is-hidden');
   if (!btn || !panelHidden || !newspaper) return;
 
   const r = getPlaneScreenRect(newspaper, 0.34, 0.24);
-  btn.style.position = 'fixed';            // <-- add this
+  btn.style.position = 'fixed';
   btn.style.left   = `${r.left}px`;
   btn.style.top    = `${r.top}px`;
   btn.style.width  = `${r.width}px`;
@@ -134,27 +213,12 @@ function placeShowBtnAtPaper(){
   btn.style.display = 'block';
 }
 
-// function placeShowBtnAtPaper(){
-//   const btn = document.getElementById('showNewsPanel');
-//   const panelHidden = document.getElementById('newsPanel')?.classList.contains('is-hidden');
-//   if (!btn || !panelHidden || !newspaper) return;
-
-//   const r = getPlaneScreenRect(newspaper, 0.34, 0.24); // your plane size
-//   btn.style.left   = `${r.left}px`;
-//   btn.style.top    = `${r.top}px`;
-//   btn.style.width  = `${r.width}px`;
-//   btn.style.height = `${r.height}px`;
-//   btn.style.display = 'block';
-// }
-
-
-async function morphPanelToButton(){
+async function morphPanelToButton() {
   const panel = document.getElementById('newsPanel');
   const btn   = document.getElementById('showNewsPanel');
   const rect  = panel.getBoundingClientRect();
   const target= getPlaneScreenRect(newspaper, 0.34, 0.24);
 
-  // lock panel
   panel.style.willChange = 'transform,opacity';
   panel.style.transformOrigin = 'top left';
   panel.style.position='fixed';
@@ -163,7 +227,6 @@ async function morphPanelToButton(){
   panel.style.width= rect.width+'px';
   panel.style.height=rect.height+'px';
 
-  // reveal button at the paper
   btn.style.display = 'block';
   placeShowBtnAtPaper();
   btn.style.opacity = 0;
@@ -188,12 +251,11 @@ async function morphPanelToButton(){
   ]);
 }
 
-function showMenuFromButton(){
+function showMenuFromButton() {
   const panel = document.getElementById('newsPanel');
   const btn   = document.getElementById('showNewsPanel');
   const target= getPlaneScreenRect(newspaper, 0.34, 0.24);
 
-  // start panel at the button’s rect
   const full = panel.getBoundingClientRect();
   panel.classList.remove('is-hidden');
   panel.style.position='fixed';
@@ -212,284 +274,137 @@ function showMenuFromButton(){
   gsap.to(btn,   { duration:.3,  opacity:0, onComplete(){ btn.style.display='none'; }});
 }
 
-
-function init() {
-  // Scene setup
-  scene = new THREE.Scene();
- 
-  scene.background = new THREE.Color(0x87CEEB); // light sky blue
-
-
-  camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
-  // camera.position.set(0, 1.6, 3);
- camera.position.set(
-  -0.13027635446298505,
-   0.1107977817900695,
-   3.9082043960702997
-);
-  renderer = new THREE.WebGLRenderer({ antialias: true });
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  document.body.appendChild(renderer.domElement);
-
-  // Lighting
-  const hemiLight = new THREE.HemisphereLight(0xffffff, 0x111111, 5.6);
-  scene.add(hemiLight);
-
-  const dirLight = new THREE.DirectionalLight(0xffffff, 1.6);
-  dirLight.position.set(3, 10, 5);
-  scene.add(dirLight);
-
-  // Controls
-  new OrbitControls(camera, renderer.domElement);
-
-  // Raycasting
-  raycaster = new THREE.Raycaster();
-  mouse = new THREE.Vector2();
-
-
-  //load the tree 
-  const treeLoader = new GLTFLoader();
-treeLoader.load('/models/tree.glb', (gltf) => {
-  let tree = gltf.scene;
-  tree.scale.set(0.7, 0.7, 0.7); // Adjust for size
-  tree.position.set(-1.5, -1.5, -0.5); // Place it to the side
-  scene.add(tree);
-}, undefined, (error) => {
-  console.error('Error loading tree model:', error);
-});
-
-  // Load Bench model
-const benchLoader = new GLTFLoader();
-benchLoader.load('/models/park_bench.glb', (gltf) => {
-  const bench = gltf.scene;
-  bench.scale.set(1, 1, 1);
-  bench.position.set(0, -1, 0); // Adjust as needed to fit Nana’s pose
-  bench.rotation.y = Math.PI; // Optional: rotate if needed
-  scene.add(bench);
-}, undefined, (error) => {
-  console.error('Error loading bench model:', error);
-});
-
-
-
-  // Load Granny model
-  const loader = new GLTFLoader();
-  loader.load('/models/nana.glb', (gltf) => {
-    granny = gltf.scene;
-
-    gltf.scene.traverse((node) => {
-      if (node.isMesh) {
-        const mat = node.material;
-
-        if (mat && mat.isMeshBasicMaterial) {
-          node.material = new THREE.MeshStandardMaterial({
-            color: mat.color,
-            roughness: 0.8,
-            metalness: 0.1,
-          });
-        }
-
-        if (mat && mat.emissive) {
-          mat.emissive.setHex(0x000000);
-          mat.emissiveIntensity = 0;
-        }
-
-        if (mat && mat.color) {
-          mat.color.multiplyScalar(0.8);
-        }
-
-        mat.needsUpdate = true;
-      }
-    });
-
-    granny.scale.set(1, 1, 1);
-    // granny.position.set(0, -0.8, 0);
-    granny.position.set(0, -1, .45);
-    scene.add(granny);
-
-    mixer = new THREE.AnimationMixer(granny);
-    const action = mixer.clipAction(gltf.animations[0]);
-    action.play();
-  }, undefined, (error) => {
-    console.error('Error loading granny model:', error);
-  });
-
-  // Floor
-  const floorGeometry = new THREE.CircleGeometry(2.5, 64); // radius, segments
-
-  const floorMaterial = new THREE.MeshStandardMaterial({
-  color: 0x228B22, // forest green
-  roughness: 1,
-  metalness: 0
-});
-  const floor = new THREE.Mesh(floorGeometry, floorMaterial);
-  floor.rotation.x = -Math.PI / 2;
-  floor.position.y = -1;
-  scene.add(floor);
-
-  // Resize
-  window.addEventListener('resize', onWindowResize);
-}
-
-function animate() {
-   requestAnimationFrame(animate);
-  if (mixer) mixer.update(0.016);
-  placeShowBtnAtPaper();       // keep the button “stuck” to the paper
-  renderer.render(scene, camera);
-}
-
-
-
-// ----------------------------
-// News Fetching & Interaction
-// ----------------------------
-
-
+// ---------- DOM wiring ----------
 window.addEventListener('DOMContentLoaded', () => {
-
-  
-  console.log("[DOM] ready, wiring show/hide listeners");
+  console.log("[DOM] ready, wiring show/hide & Nana");
 
   const newsPanel    = document.getElementById("newsPanel");
-  const showNewsBtn  = document.getElementById("showNewsPanel");  // the 'text on paper'
-  const hideNewsBtn  = document.getElementById("hideNewsPanel");  // new 'Hide News' button in panel
+  const showNewsBtn  = document.getElementById("showNewsPanel");
+  const hideNewsBtn  = document.getElementById("hideNewsPanel");
+  const nanaBtn      = document.getElementById('nanaExplainBtn');
+  const nanaOut      = document.getElementById('nanaExplainOut');
 
   if (!newsPanel || !showNewsBtn || !hideNewsBtn) {
     console.error("[DOM] Missing one or more elements — check IDs: #newsPanel, #showNewsPanel, #hideNewsPanel");
     return;
   }
 
-  // Start CLOSED by default
-  newsPanel.classList.add("is-hidden");   // panel hidden
-  showNewsBtn.style.display = "block";    // paper text visible
+  // Start CLOSED
+  newsPanel.classList.add("is-hidden");
+  showNewsBtn.style.display = "block";
 
-  // Click handlers
-  hideNewsBtn.addEventListener('click', (e) => {
-    e.preventDefault(); e.stopPropagation();
-    morphPanelToButton();                 // animate panel → paper
-  });
+  hideNewsBtn.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); morphPanelToButton(); });
+  showNewsBtn.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); showMenuFromButton(); });
 
-  showNewsBtn.addEventListener('click', (e) => {
-    e.preventDefault(); e.stopPropagation();
-    showMenuFromButton();                 // animate paper → panel
-  });
+//   
 
-    // ---- Nana explain wiring (place here, at end of DOMContentLoaded) ----
 
-    // ---- Nana explain wiring ----
-const nanaBtn = document.getElementById('nanaExplainBtn');
-const nanaOut = document.getElementById('nanaExplainOut'); // optional preview area
+
+
+// ----- “Nana’s Take” button: cache-first with optional force refresh -----
 setNanaBtnLabel();
 
-nanaBtn?.addEventListener('click', async () => {
-  // Toggle pause if currently playing
-  if (nanaIsPlaying) {
-    stopNana();
-    return;
-  }
+// Guard: make sure the button exists
+if (!nanaBtn) {
+  console.warn('[Nana] #nanaExplainBtn not found in DOM.');
+} else {
+  nanaBtn.addEventListener('click', async (ev) => {
+    // If currently speaking Nana, toggle to pause/stop
+    if (nanaIsPlaying) {
+      console.log('[Nana] Button clicked while playing → stopping.');
+      stopNana();
+      return;
+    }
 
-  // If not playing: prepare & start
-  stopAllAudio();                       // stop headlines if they were speaking
+    stopAllAudio(); // stop headline playback if any
 
-  // Generate only once, then reuse (unless you want to regenerate every time)
-  if (!nanaItems.length && !nanaIsPreparing) {
+    // Hold ⌥ (Alt) or ⌘ (Meta) to force-refresh today’s take
+    const forceRefresh = !!(ev.altKey || ev.metaKey);
+    const status = document.getElementById('status');
+
+    if (nanaIsPreparing) {
+      console.log('[Nana] Already preparing; click ignored.');
+      return;
+    }
+
     nanaIsPreparing = true;
     setNanaBtnLabel();
-
-    const status = document.getElementById('status');
-    if (status) status.textContent = 'Nana is reading and thinking…';
+    if (status) status.textContent = forceRefresh ? 'Forcing a fresh Nana…' : 'Checking today’s Nana…';
 
     try {
-      const urls = articles.map(a => a.url).filter(Boolean);
-      const values = [
-        "human-centered design",
-        "rapid prototyping",
-        "storytelling impact",
-        "ethics & attribution",
-        "open formats",
-        "accessibility & performance"
-      ];
-      // Keep it small for cost/speed; server also caps to 3
-      nanaItems = await nanaExplain(urls.slice(0, 3), values);  // [{title,url,md}]
-      if (nanaOut && nanaItems.length) {
-        // optional: show the text in the panel (not required for speaking)
-        nanaOut.textContent = nanaItems.map(i => `${i.title}\n\n${i.md}`).join('\n\n---\n\n');
+      // 1) Try to read today’s doc from cache (your function should respect 24h freshness)
+      let today = null;
+      try {
+        const url = forceRefresh ? `${NANA_ROUTE}?force=true` : NANA_ROUTE;
+        const res = await fetch(url);
+        if (res.ok) {
+          today = await res.json();
+          console.log('[Nana] Cache check result:', today?.source || 'unknown', today);
+        } else if (res.status !== 404) {
+          console.warn('[Nana] GET failed:', res.status, await res.text());
+        }
+      } catch (e) {
+        console.warn('[Nana] GET threw:', e);
       }
+
+      // 2) If no items yet (first run today), seed with current articles then read again
+      if (!today || !today.items?.length) {
+        const urls = (articles || []).map(a => a.url).filter(Boolean);
+        if (!urls.length) {
+          if (status) status.textContent = 'No articles to analyze yet.';
+          nanaIsPreparing = false; setNanaBtnLabel();
+          return;
+        }
+
+        if (status) status.textContent = 'Nana is reading and thinking…';
+        console.log('[Nana] Seeding with URLs:', urls.slice(0, 3));
+
+        // Keep it small; your server can de-dupe/append internally
+        await upsertTodayNana(urls.slice(0, 3), [
+          'human-centered design',
+          'rapid prototyping',
+          'storytelling impact',
+          'ethics & attribution',
+          'open formats',
+          'accessibility & performance',
+        ]);
+
+        // Read back
+        const res2 = await fetch(NANA_ROUTE);
+        if (!res2.ok) {
+          throw new Error(`After seed, GET failed: ${res2.status} ${await res2.text()}`);
+        }
+        today = await res2.json();
+      }
+
+      // 3) Use items/doc for playback + optional preview
+      nanaItems = today.items || [];
+      if (!nanaItems.length) {
+        if (status) status.textContent = 'No Nana analysis available.';
+        nanaIsPreparing = false; setNanaBtnLabel();
+        return;
+      }
+
+      if (nanaOut && today.doc) {
+        nanaOut.textContent = today.doc;
+      }
+
+      currentNanaIndex = 0;
+      nanaIsPreparing = false;
+      setNanaBtnLabel();
+      startNanaPlayback();
     } catch (err) {
-      console.error('nana_explain failed:', err);
-      if (status) status.textContent = 'Failed to synthesize.';
-    } finally {
+      console.error('[Nana] Error:', err);
+      if (status) status.textContent = 'Failed to synthesize Nana.';
       nanaIsPreparing = false;
       setNanaBtnLabel();
     }
-  }
-
-  if (!nanaItems.length) {
-    const status = document.getElementById('status');
-    if (status) status.textContent = 'No Nana analysis.';
-    return;
-  }
-
-  currentNanaIndex = 0;
-  startNanaPlayback();
-});
-// ------------------------------
-
-  // const nanaBtn = document.getElementById('nanaExplainBtn');
-  // const nanaOut = document.getElementById('nanaExplainOut');
-
-  // nanaBtn?.addEventListener('click', async () => {
-  //   if (!articles.length) return;
-  //   nanaOut.textContent = 'Thinking…';
-
-  //   try {
-  //     const urls = articles.map(a => a.url).filter(Boolean);
-  //     const values = [
-  //       "human-centered design",
-  //       "rapid prototyping",
-  //       "storytelling impact",
-  //       "ethics & attribution",
-  //       "open formats",
-  //       "accessibility & performance"
-  //     ];
-  //     const data = await nanaExplain(urls, values);
-  //     nanaOut.textContent = data.doc || 'No analysis.';
-  //     if (data.doc) downloadMarkdown(data.doc);
-  //   } catch (err) {
-  //     console.error('nana_explain failed:', err);
-  //     nanaOut.textContent = 'Failed to synthesize.';
-  //   }
-  // });
-  // ----------------------------------------------------------------------
-// ---- playback + voice buttons ----
-const playBtn   = document.getElementById('togglePlayBtn');
-const readAll   = document.getElementById('readAllBtn');
-const voiceBtn  = document.getElementById('elevenLabsBtn');
-
-playBtn?.addEventListener('click', togglePlayPause);
-
-readAll?.addEventListener('click', async () => {
-  await readAllWithGoogleVoice(); // uses browser TTS
-});
-
-voiceBtn?.addEventListener('click', async () => {
-  // flip voice engine
-  cancelSpeaking();
-  useElevenLabs = !useElevenLabs;
-
-  // update label (and optionally check credits)
-  if (useElevenLabs) {
-    voiceBtn.textContent = '🧠 Voice: ElevenLabs';
-    fetchElevenLabsCredits().catch(console.warn);
-  } else {
-    voiceBtn.textContent = '🔈 Voice: Browser';
-  }
-});
-
-});
+  });
+}
 
 
-renderer.domElement.addEventListener('pointerdown', (ev) => {
+// Click on the 3D newspaper to open the panel
+renderer?.domElement.addEventListener('pointerdown', (ev) => {
   const rect = renderer.domElement.getBoundingClientRect();
   mouse.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
   mouse.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
@@ -497,69 +412,37 @@ renderer.domElement.addEventListener('pointerdown', (ev) => {
   raycaster.setFromCamera(mouse, camera);
   const hits = raycaster.intersectObject(newspaper, true);
 
-  // Open the panel only when the paper is clicked and the panel is currently closed
   if (hits.length) {
     ev.preventDefault();
     ev.stopPropagation();
-
     const panel = document.getElementById('newsPanel');
-    if (panel && panel.classList.contains('is-hidden')) {
-      showMenuFromButton();
-    }
+    if (panel && panel.classList.contains('is-hidden')) showMenuFromButton();
   }
-
-
-   console.log("[Raycast] pointerdown", { x: mouse.x.toFixed(2), y: mouse.y.toFixed(2), hits: hits.length });
 });
 
+// ---------- Articles UI ----------
 async function fetchArticles() {
-  console.log("📡 Fetching articles...");
-
   try {
-    console.log("trying to fetch articles from:", API_URL);
-   
-
-  
-
-    const response = await fetch('/.netlify/functions/articles');
+    const response = await fetch(API_URL);
     const data = await response.json();
-
-    console.log("✅ Raw data returned:", data);  // ADD THIS LINE
-
-    // OLD: return data.articles || [];
-  return data || []; // ✅ This matches what your function returns (an array directly)
-
-   
+    return data || [];
   } catch (err) {
     console.error("❌ Error fetching articles:", err);
     return [];
   }
 }
 
-
-
-function onWindowResize() {
-  camera.aspect = window.innerWidth / window.innerHeight;
-  camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
-}
-
-
 async function renderArticles() {
-  console.log("📦 renderArticles() started");
-
   const headlinesDiv = document.getElementById("headlines");
   const status = document.getElementById("status");
 
   if (!headlinesDiv || !status) {
-    console.error("🚫 headlines or status element missing");
+    console.error("Missing #headlines or #status");
     return;
   }
 
-  status.textContent = "🕐 Loading articles..."; // Show loading state
-
-  articles = await fetchArticles(); // ✅ Use global
-
+  status.textContent = "🕐 Loading articles...";
+  articles = await fetchArticles();
   headlinesDiv.innerHTML = "";
 
   if (!articles.length) {
@@ -568,142 +451,127 @@ async function renderArticles() {
     return;
   }
 
-
-
   status.textContent = `Click a headline to hear it.`;
-for (const article of articles) {
-  const title = article.title || "No title";
-  const content = article.content || "No summary available.";
 
+  for (const article of articles) {
+    const title = article.title || "No title";
+    const content = article.content || "No summary available.";
 
+    const wrapper = document.createElement("div");
+    wrapper.style.display = "flex";
+    wrapper.style.alignItems = "center";
+    wrapper.style.gap = "10px";
+    wrapper.style.marginBottom = "0.75rem";
 
-  const wrapper = document.createElement("div");
-wrapper.style.display = "flex";
-wrapper.style.alignItems = "center";
-wrapper.style.gap = "10px";
-wrapper.style.marginBottom = "0.75rem";
+    const el = document.createElement("div");
+    el.innerHTML = `<strong>${title}</strong><br><small>${article.source || ''}</small>`;
+    el.style.cursor = "pointer";
+    el.style.flex = "1";
 
-// Headline block
-const el = document.createElement("div");
-el.innerHTML = `<strong>${title}</strong><br><small>${article.source}</small>`;
-el.style.cursor = "pointer";
-el.style.flex = "1";
+    const linkBtn = document.createElement("button");
+    linkBtn.textContent = "🔗 Read";
+    linkBtn.style.padding = "4px 10px";
+    linkBtn.style.fontSize = "0.9rem";
+    linkBtn.style.cursor = "pointer";
 
-// Click-to-read button
-const linkBtn = document.createElement("button");
-linkBtn.textContent = "🔗 Read";
-linkBtn.style.padding = "4px 10px";
-linkBtn.style.fontSize = "0.9rem";
-linkBtn.style.cursor = "pointer";
+    linkBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      window.open(article.url, '_blank');
+    });
 
-linkBtn.addEventListener("click", (e) => {
-  e.stopPropagation(); // Prevent triggering speech
-  window.open(article.url, '_blank');
-});
+    el.addEventListener("click", async () => {
+      cancelSpeaking();
+      setPlaybackActive();
+      const fullText = await fetchFullArticleText(article.url);
+      const textToRead = fullText || `${title}. ${content}`;
+      await speakText(`Headline: ${title}. ${textToRead}`);
+    });
 
-// Listen on headline
-el.addEventListener("click", async () => {
-  cancelSpeaking();
-  console.log(`📥 Fetching full article from: ${article.url}`);
-  const fullText = await fetchFullArticleText(article.url);
-  const textToRead = fullText || `${title}. ${content}`;
-  await speakText(`Headline: ${title}. ${textToRead}`);
-});
-
-wrapper.appendChild(el);
-wrapper.appendChild(linkBtn);
-headlinesDiv.appendChild(wrapper);
-
-  el.addEventListener("click", async () => {
-    cancelSpeaking(); // ✅ stop current voice
-
-    setPlaybackActive();
-    console.log(`📥 Fetching full article from: ${article.url}`);
-    const fullText = await fetchFullArticleText(article.url);
-
-    if (fullText) {
-      console.log("✅ Full article loaded. Preview:", fullText.slice(0, 300));
-    } else {
-      console.warn("⚠️ Full article not available, using fallback content.");
-    }
-
-    const textToRead = fullText || `${title}. ${content}`;
-    await speakText(`Headline: ${title}. ${textToRead}`);
- 
-
-   
-  });
-
-  headlinesDiv.appendChild(el);
-}
-}
-
-
-function showMenuFromNewspaper() {
-  const panel = document.getElementById('newsPanel');
-  const center = newspaper.getWorldPosition(new THREE.Vector3());
-  const { x, y } = worldToScreen(center, camera, renderer);
-
-  // start panel tiny at the plane, then expand
-  panel.classList.remove('is-hidden');
-  const rect = panel.getBoundingClientRect();
-  const tX = x - (rect.left + rect.width / 2);
-  const tY = y - (rect.top + rect.height / 2);
-  panel.style.transformOrigin = 'top left';
-  panel.style.transform = `translate(${tX}px, ${tY}px) scale(0.1)`;
-  panel.style.opacity = 0;
-
-  gsap.to(panel, { duration: 0.45, opacity: 1, clearProps: 'transform', ease: 'power2.out' });
-  gsap.to(newspaper.material, { duration: 0.3, opacity: 0, ease: 'power2.out' });
-}
-
-// ----------------------------
-// Voice & Interaction Helpers
-// ----------------------------
-
-let isSpeaking = false;
-let useElevenLabs = true; 
-let currentAudio = null;
-let currentSpeakingId = 0;
-
-
-async function speakText(text) {
-  cancelSpeaking(); // Always cancel previous audio
-
-  const speakId = ++currentSpeakingId; 
-  isSpeaking = true;
-
-  try {
-    if (useElevenLabs) {
-      await speakWithElevenLabs(text, speakId);
-    } else {
-      await speakWithBrowserTTS(text, speakId);
-    }
-  } catch (err) {
-    console.warn("🟡 Preferred voice failed, falling back", err);
-    if (useElevenLabs) {
-      await speakWithBrowserTTS(text, speakId); // fallback
-    } else {
-      console.warn("⚠️ Both voice systems failed.");
-    }
-  } finally {
-    if (speakId === currentSpeakingId) {
-      isSpeaking = false;
-    }
+    wrapper.appendChild(el);
+    wrapper.appendChild(linkBtn);
+    headlinesDiv.appendChild(wrapper);
   }
 }
 
+window.addEventListener('load', async () => {
+  try {
+    await renderArticles();
+  } catch (err) {
+    console.error("🔥 Failed to render articles:", err);
+  }
+});
 
+// ---------- Headline autoplay ----------
+function setPlaybackActive() {
+  isPlaying = true;
+  shouldStop = false;
+  const btn = document.getElementById("togglePlayBtn");
+  if (btn) btn.textContent = "⏸️ Pause";
+}
+
+async function togglePlayPause() {
+  if (!articles.length) return;
+
+  if (nanaIsPlaying) {
+    stopNana();
+    const btn = document.getElementById("togglePlayBtn");
+    if (btn) btn.textContent = "▶️ Play";
+  }
+
+  const btn = document.getElementById("togglePlayBtn");
+  if (!btn) return;
+
+  if (!isPlaying) {
+    setPlaybackActive();
+    playArticlesFrom(currentArticleIndex);
+  } else {
+    shouldStop = true;
+    isPlaying = false;
+    speechSynthesis.cancel();
+    btn.textContent = "▶️ Play";
+  }
+}
+
+async function playArticlesFrom(index) {
+  for (; index < articles.length; index++) {
+    if (shouldStop) break;
+    const a = articles[index];
+    const text = `Headline: ${a.title}. ${a.content}`;
+    currentArticleIndex = index;
+    await speakText(text);
+  }
+
+  if (!shouldStop) {
+    isPlaying = false;
+    currentArticleIndex = 0;
+    const btn = document.getElementById("togglePlayBtn");
+    if (btn) btn.textContent = "▶️ Play";
+    const status = document.getElementById('status');
+    if (status) status.textContent = `✔️ All articles played. Click a headline to hear again.`;
+  }
+}
+
+const playBtn = document.getElementById('togglePlayBtn');
+playBtn?.addEventListener('click', togglePlayPause);
+
+// ---------- Fetch full article text (optional on click) ----------
+async function fetchFullArticleText(articleUrl) {
+  const response = await fetch('/.netlify/functions/fullArticle', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url: articleUrl })
+  });
+  if (!response.ok) return null;
+  const { content } = await response.json();
+  return content;
+}
+
+// ---------- Voice helpers ----------
 function getPreferredVoice() {
   return new Promise(resolve => {
     const voices = speechSynthesis.getVoices();
-    if (voices.length) {
-      resolve(voices);
-    } else {
-      speechSynthesis.onvoiceschanged = () => {
-        resolve(speechSynthesis.getVoices());
-      };
-    }
+    if (voices.length) resolve(voices);
+    else speechSynthesis.onvoiceschanged = () => resolve(speechSynthesis.getVoices());
   });
 }
 
@@ -713,15 +581,25 @@ function cancelSpeaking() {
     currentAudio.src = '';
     currentAudio = null;
   }
-
-  if (speechSynthesis.speaking || speechSynthesis.pending) {
-    speechSynthesis.cancel();
-  }
-
+  if (speechSynthesis.speaking || speechSynthesis.pending) speechSynthesis.cancel();
   isSpeaking = false;
 }
 
+async function speakText(text) {
+  cancelSpeaking();
+  const speakId = ++currentSpeakingId;
+  isSpeaking = true;
 
+  try {
+    if (useElevenLabs) await speakWithElevenLabs(text, speakId);
+    else await speakWithBrowserTTS(text, speakId);
+  } catch (err) {
+    console.warn("🟡 Preferred voice failed, falling back", err);
+    if (useElevenLabs) await speakWithBrowserTTS(text, speakId);
+  } finally {
+    if (speakId === currentSpeakingId) isSpeaking = false;
+  }
+}
 
 async function speakWithElevenLabs(text, speakId) {
   const response = await fetch('/.netlify/functions/tts', {
@@ -730,11 +608,7 @@ async function speakWithElevenLabs(text, speakId) {
     body: JSON.stringify({ text })
   });
 
-  if (response.status === 401) {
-  throw new Error("Unauthorized: ElevenLabs token missing or invalid.");
-}
-
-
+  if (response.status === 401) throw new Error("Unauthorized: ElevenLabs token missing or invalid.");
   if (!response.ok) throw new Error(`TTS Netlify error: ${response.status}`);
 
   const audioBlob = await response.blob();
@@ -742,12 +616,8 @@ async function speakWithElevenLabs(text, speakId) {
   const audio = new Audio(audioUrl);
   currentAudio = audio;
 
-  console.log("🎧 Playing ElevenLabs voice...");
-
   return new Promise((resolve) => {
-    audio.onended = () => {
-      if (speakId === currentSpeakingId) resolve();
-    };
+    audio.onended = () => { if (speakId === currentSpeakingId) resolve(); };
     audio.onerror = resolve;
     audio.play();
   });
@@ -756,191 +626,70 @@ async function speakWithElevenLabs(text, speakId) {
 async function speakWithBrowserTTS(text, speakId) {
   const utterance = new SpeechSynthesisUtterance(text);
   const voices = await getPreferredVoice();
-  const voice = voices.find(v =>
-    v.name.includes("Tessa") || v.name.includes("Google UK English")
-  );
+  const voice = voices.find(v => v.name.includes("Tessa") || v.name.includes("Google UK English"));
   utterance.voice = voice || voices[0];
   utterance.rate = 0.9;
   utterance.pitch = 1.0;
 
   return new Promise((resolve) => {
-    utterance.onend = () => {
-      if (speakId === currentSpeakingId) resolve();
-    };
+    utterance.onend = () => { if (speakId === currentSpeakingId) resolve(); };
     utterance.onerror = resolve;
     speechSynthesis.speak(utterance);
   });
 }
 
+// ---------- Voice buttons ----------
+const readAll = document.getElementById('readAllBtn');
+const voiceBtn = document.getElementById('elevenLabsBtn');
 
-window.addEventListener('load', async () => {
-  try {
-    console.log("📰 Page loaded, calling renderArticles()");
-    await renderArticles();
-  } catch (err) {
-    console.error("🔥 Failed to render articles:", err);
-  }
-});
-
-
-
-let isPlaying = false;
-console.log("🔁 isPlaying initialized:", isPlaying);
-let currentArticleIndex = 0;
-
-
-async function togglePlayPause() {
-  console.log("🎯 togglePlayPause called");
-  console.log("📦 articles loaded?", articles.length > 0);
-  console.log("🟡 isPlaying before toggle:", isPlaying);
-
-  if (!articles.length) {
-    console.warn("⚠️ No articles available to play.");
-    return;
-  }
-
-  // If Nana is currently explaining, stop her and then proceed with headlines
-if (nanaIsPlaying) {
-  stopNana();
-  const btn = document.getElementById("togglePlayBtn");
-  if (btn) btn.textContent = "▶️ Play";
-  // continue into the rest of your headline toggle logic...
-}
-
-  const btn = document.getElementById("togglePlayBtn");
-  if (!btn) {
-    console.error("🚫 Button not found at time of toggle.");
-    return;
-  }
-
- if (!isPlaying) {
-  setPlaybackActive();
-
-    console.log("▶️ Starting playback from index:", currentArticleIndex);
-
-    setTimeout(() => {
-      if (isPlaying) {
-        btn.textContent = "⏸️ Pause"; // ⬅ fallback in case it was overwritten
-      }
-    }, 100);
-
-    playArticlesFrom(currentArticleIndex); // fire-and-forget
-  } else {
-    shouldStop = true;
-    isPlaying = false;
-    speechSynthesis.cancel();
-    btn.textContent = "▶️ Play";
-    console.log("⏸️ Paused playback. Current index:", currentArticleIndex);
-  }
-
-  console.log("🟢 isPlaying after toggle:", isPlaying);
-}
-
-async function playArticlesFrom(index) {
-  for (; index < articles.length; index++) {
-    if (shouldStop) break;
-
-    const article = articles[index];
-    const text = `Headline: ${article.title}. ${article.content}`;
-    currentArticleIndex = index;
-    
-
-    await speakText(text); // blocking, but will now pause if `speechSynthesis.cancel()` was called
-  }
-
-
-  // If finished naturally
-  if (!shouldStop) {
-    isPlaying = false;
-    currentArticleIndex = 0;
-    document.getElementById("togglePlayBtn").textContent = "▶️ Play";
-    status.textContent = `✔️ All articles played. Click a headline to hear again.`;
-
-  }
-}
-
-async function fetchFullArticleText(articleUrl) {
-  const response = await fetch('/.netlify/functions/fullArticle', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ url: articleUrl })
-  });
-
-  if (!response.ok) {
-    console.warn("❌ Failed to fetch full article:", await response.text());
-    return null;
-  }
-
-  const { content } = await response.json();
-  return content;
-}
-
-
-
-///read all button logic 
-async function readAllWithGoogleVoice() {
-  console.log("🗣️ Reading all articles with Google Voice");
-  if (!articles.length) {
-    console.warn("⚠️ No articles to read.");
-    return;
-  }
-
+readAll?.addEventListener('click', async () => {
+  if (!articles.length) return;
   shouldStop = false;
   isSpeaking = true;
-  setPlaybackActive(); 
-
-  useElevenLabs = false; // Force browser voice
-
+  setPlaybackActive();
+  useElevenLabs = false; // force browser voice
   for (let i = 0; i < articles.length; i++) {
     if (shouldStop) break;
-
-    const article = articles[i];
-    const text = `Headline: ${article.title}. ${article.content}`;
+    const a = articles[i];
+    const text = `Headline: ${a.title}. ${a.content}`;
     currentArticleIndex = i;
-    await speakText(text); // Uses browser voice since ElevenLabs is off
+    await speakText(text);
   }
-
   isSpeaking = false;
   currentArticleIndex = 0;
-}
+});
+
+voiceBtn?.addEventListener('click', async () => {
+  cancelSpeaking();
+  useElevenLabs = !useElevenLabs;
+  if (useElevenLabs) {
+    voiceBtn.textContent = '🧠 Voice: ElevenLabs';
+    fetchElevenLabsCredits().catch(console.warn);
+  } else {
+    voiceBtn.textContent = '🔈 Voice: Browser';
+  }
+});
 
 async function fetchElevenLabsCredits() {
   try {
     const res = await fetch('/.netlify/functions/credits');
     const data = await res.json();
-
-    const used = data.characterCount;
-    const limit = data.characterLimit;
-    const remaining = limit - used;
-
+    const remaining = data.characterLimit - data.characterCount;
     const btn = document.getElementById("elevenLabsBtn");
-    if (btn) {
-      if (remaining <= 0) {
-        btn.innerHTML = `🔴 Voice: ElevenLabs (0 left)`;
-        btn.disabled = true; // optional: disable the button
-      } else if (remaining <= 1000) {
-        btn.innerHTML = `🟠 Voice: ElevenLabs (${remaining.toLocaleString()} left)`;
-      } else {
-        btn.innerHTML = `🧠 Voice: ElevenLabs (${remaining.toLocaleString()} left)`;
-      }
-    }
+    if (!btn) return;
+    if (remaining <= 0) { btn.innerHTML = `🔴 Voice: ElevenLabs (0 left)`; btn.disabled = true; }
+    else if (remaining <= 1000) btn.innerHTML = `🟠 Voice: ElevenLabs (${remaining.toLocaleString()} left)`;
+    else btn.innerHTML = `🧠 Voice: ElevenLabs (${remaining.toLocaleString()} left)`;
   } catch (err) {
     console.warn("❌ Failed to fetch ElevenLabs credits:", err);
   }
 }
 
-
-//jhelpewrs
-
-
+// ---------- Nana playback helpers ----------
 function setNanaBtnLabel() {
   const btn = document.getElementById('nanaExplainBtn');
   if (!btn) return;
-  if (nanaIsPreparing) {
-    btn.textContent = '⏳ Preparing Nana…';
-    btn.disabled = true;
-    return;
-  }
+  if (nanaIsPreparing) { btn.textContent = '⏳ Preparing Nana…'; btn.disabled = true; return; }
   btn.disabled = false;
   btn.textContent = nanaIsPlaying ? '⏸️ Pause explaining' : '▶️ Nana’s Take';
 }
@@ -949,11 +698,7 @@ function stopAllAudio() {
   shouldStop = true;
   isSpeaking = false;
   speechSynthesis.cancel();
-  if (currentAudio) {
-    currentAudio.pause();
-    currentAudio.src = '';
-    currentAudio = null;
-  }
+  if (currentAudio) { currentAudio.pause(); currentAudio.src = ''; currentAudio = null; }
 }
 
 function stopNana() {
@@ -970,18 +715,28 @@ function startNanaPlayback() {
   playNanaFrom(currentNanaIndex);
 }
 
+});
+function mdToSpeech(md = '') {
+  // Basic markdown → readable text
+  return md
+    .replace(/`{1,3}[^`]*`{1,3}/g, '')            // inline/code blocks
+    .replace(/^#{1,6}\s*/gm, '')                  // headings
+    .replace(/\*\*([^*]+)\*\*/g, '$1')            // bold
+    .replace(/\*([^*]+)\*/g, '$1')                // italics
+    .replace(/^-+\s*$/gm, '')                     // hr
+    .replace(/^\s*[-*]\s+/gm, '• ')               // bullets
+    .replace(/\n{3,}/g, '\n\n')                   // collapse newlines
+    .trim();
+}
 
 async function playNanaFrom(index) {
   for (; index < nanaItems.length; index++) {
     if (shouldStop) break;
-
     const item = nanaItems[index];
-    const speech = `${item.title}. ${mdToSpeech(item.md)}`; // title + cleaned content
+    const speech = `${item.title}. ${mdToSpeech(item.md)}`;
     currentNanaIndex = index;
-
     await speakText(speech);
   }
-
   if (!shouldStop) {
     nanaIsPlaying = false;
     currentNanaIndex = 0;
@@ -989,4 +744,11 @@ async function playNanaFrom(index) {
     const status = document.getElementById('status');
     if (status) status.textContent = '✔️ Nana finished.';
   }
+}
+
+// ---------- Window resize ----------
+function onWindowResize() {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
 }

@@ -15,7 +15,9 @@
   "dependencies": {
     "@mozilla/readability": "^0.6.0",
     "@netlify/blobs": "^10.0.8",
+    "@netlify/functions": "^4.2.1",
     "cheerio": "^1.1.2",
+    "dotenv": "^17.2.1",
     "gsap": "^3.13.0",
     "html2canvas": "^1.4.1",
     "jsdom": "^26.1.0",
@@ -23,6 +25,7 @@
     "three": "^0.178.0"
   },
   "devDependencies": {
+    "netlify-cli": "^23.1.4",
     "vite": "^7.0.6"
   }
 }

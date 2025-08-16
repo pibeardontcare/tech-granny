@@ -1,21 +1,20 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+
 [functions]
-  directory = "netlify/functions"          
-  node_bundler = "esbuild"                 
-  external_node_modules = ["jsdom", "@mozilla/readability", "@netlify/blobs"]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"
+  # Only keep externals your functions actually import and want unbundled
+  external_node_modules = ["jsdom", "@mozilla/readability"]
   included_files = [
     "node_modules/jsdom/**",
-    "node_modules/@mozilla/readability/**",
-    "node_modules/@netlify/blobs/**"
+    "node_modules/@mozilla/readability/**"
   ]
 
 
-  [functions."nana_explain"]
+[functions."nana_explain"]
   timeout = 20
-
-[build]
-command = "npm run build"
-publish = "dist"
-
 
 
 [[redirects]]
@@ -24,8 +23,5 @@ publish = "dist"
   status = 200
 
 
-
-
-
-
-
+[dev]
+  framework = "#static"
