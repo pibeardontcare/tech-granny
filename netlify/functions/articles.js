@@ -4,6 +4,10 @@ import fetch from 'node-fetch';
 export async function handler(event, context) {
   const NEWS_API_KEY = process.env.NEWS_API_KEY;
 
+  if(NEWS_API_KEY){
+    console.log('🔑 you have a News API key');
+  }
+
   if (!NEWS_API_KEY) {
     return {
       statusCode: 500,
@@ -53,11 +57,13 @@ export async function handler(event, context) {
       };
     }
   } catch (err) {
+    console.error('[articles] extraction failed:', err);
     return {
       statusCode: 500,
       body: JSON.stringify({ error: 'Failed to fetch articles', details: err.message })
     };
   }
+
 
 
 }

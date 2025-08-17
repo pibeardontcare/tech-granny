@@ -1,59 +1,36 @@
+
+
 // import fetch from 'node-fetch';
-// import * as cheerio from 'cheerio';
+// import { JSDOM } from 'jsdom';
+// import { Readability } from '@mozilla/readability';
 
 // export async function handler(event) {
-//     console.log("📥 fullArticle handler called with event:", event);
-//     const { url } = JSON.parse(event.body || '{}');
-
-//   if (!url) {
-//     return {
-//       statusCode: 400,
-//       body: JSON.stringify({ error: 'Missing article URL' })
-//     };
-//   }
-
 //   try {
-//     const response = await fetch(url);
-//     const html = await response.text();
+//     const { url } = JSON.parse(event.body || '{}');
+//     if (!url) return { statusCode: 400, body: JSON.stringify({ error: 'Missing url' }) };
 
-//     const $ = cheerio.load(html);
+//     const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+//     const html = await res.text();
 
-//     // Try common content containers
-//     const candidates = [
-//       'article',
-//       'main',
-//       '[itemprop="articleBody"]',
-//       '.article-content',
-//       '.post-content',
-//       '.entry-content',
-//       '#article'
-//     ];
+//     const dom = new JSDOM(html, { url });
+//     const reader = new Readability(dom.window.document);
+//     const article = reader.parse();
 
-//     let text = '';
-//     for (const selector of candidates) {
-//       const section = $(selector);
-//       if (section.length && section.text().length > 200) {
-//         text = section.text().trim();
-//         break;
-//       }
-//     }
+//     const content = article?.textContent?.trim() || '';
 
-//     if (!text) {
-//       return {
-//         statusCode: 404,
-//         body: JSON.stringify({ error: 'Could not extract article content' })
-//       };
-//     }
+//      // ✅ Log full article text
+//     console.log(`\n=== FULL ARTICLE (${article?.title || 'Untitled'}) ===\n`);
+
+//     console.log(content);
+//     console.log('\n===============================\n');
 
 //     return {
 //       statusCode: 200,
-//       body: JSON.stringify({ content: text.slice(0, 5000) }) // limit to 5k chars for safety
+//       headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+//       body: JSON.stringify({ title: article?.title || '', content })
 //     };
 //   } catch (err) {
-//     return {
-//       statusCode: 500,
-//       body: JSON.stringify({ error: 'Scraping failed', details: err.message })
-//     };
+//     return { statusCode: 500, body: JSON.stringify({ error: 'extract-failed', details: err.message }) };
 //   }
 // }
 
@@ -62,25 +39,103 @@ import fetch from 'node-fetch';
 import { JSDOM } from 'jsdom';
 import { Readability } from '@mozilla/readability';
 
+// --- helpers ---
+async function fetchAndExtract(url) {
+  const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+  const html = await res.text();
+  const dom = new JSDOM(html, { url });
+  const reader = new Readability(dom.window.document);
+  const article = reader.parse();
+  return {
+    url,
+    title: article?.title || '',
+    content: (article?.textContent || '').trim()
+  };
+}
+
+// Builds a single big string, with dividers between articles
+function buildMerged(results) {
+  return results
+    .filter(r => r && !r.error && r.content)
+    .map(r => `# ${r.title || r.url}\n${r.url}\n\n${r.content}`)
+    .join('\n\n---\n\n');
+}
+
 export async function handler(event) {
   try {
-    const { url } = JSON.parse(event.body || '{}');
-    if (!url) return { statusCode: 400, body: JSON.stringify({ error: 'Missing url' }) };
+    // CORS preflight (optional but handy during local dev)
+    if (event.httpMethod === 'OPTIONS') {
+      return {
+        statusCode: 204,
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Headers': 'Content-Type',
+          'Access-Control-Allow-Methods': 'POST,OPTIONS'
+        }
+      };
+    }
 
-    const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
-    const html = await res.text();
+    const body = JSON.parse(event.body || '{}');
 
-    const dom = new JSDOM(html, { url });
-    const reader = new Readability(dom.window.document);
-    const article = reader.parse();
+    // Accept either { url } or { urls: [...] }
+    const urls = Array.isArray(body.urls)
+      ? body.urls
+      : body.url
+      ? [body.url]
+      : null;
 
-    const content = article?.textContent?.trim() || '';
+    if (!urls || urls.length === 0) {
+      return {
+        statusCode: 400,
+        headers: { 'Access-Control-Allow-Origin': '*' },
+        body: JSON.stringify({ error: 'Missing or invalid urls array' })
+      };
+    }
+
+    // Process all URLs (sequential to be gentle; switch to Promise.all for speed)
+    const results = [];
+    for (const u of urls) {
+      try {
+        const r = await fetchAndExtract(u);
+
+        // Per-article log (what you already had)
+        console.log(`\n=== FULL ARTICLE (${r.title || 'Untitled'}) ===\n`);
+        console.log(r.content);
+        console.log('\n===============================\n');
+
+        results.push(r);
+      } catch (err) {
+        results.push({ url: u, error: err.message });
+      }
+    }
+
+    // 🔗 Build and log the single merged blob
+    const merged = buildMerged(results);
+    if (merged) {
+      console.log('\n=== MERGED ARTICLES ===\n');
+      console.log(merged);
+      console.log('\n=======================\n');
+    }
+
+    // Backward compatible response:
+    // - if a single URL was passed, return a single object
+    // - if multiple, return { results, merged }
+    const isSingle = !Array.isArray(body.urls) && !!body.url;
+    const payload = isSingle ? results[0] : { results, merged };
+
     return {
       statusCode: 200,
-      headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
-      body: JSON.stringify({ title: article?.title || '', content })
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*'
+      },
+      body: JSON.stringify(payload)
     };
   } catch (err) {
-    return { statusCode: 500, body: JSON.stringify({ error: 'extract-failed', details: err.message }) };
+    return {
+      statusCode: 500,
+      headers: { 'Access-Control-Allow-Origin': '*' },
+      body: JSON.stringify({ error: 'extract-failed', details: err.message })
+    };
   }
 }

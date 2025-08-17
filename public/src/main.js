@@ -93,7 +93,7 @@ scene.add(newspaper);
 function tick() {
   requestAnimationFrame(tick);
   if (mixer) mixer.update(0.016);
-  placeShowBtnAtPaper();
+
   renderer.render(scene, camera);
 }
 tick();
@@ -134,18 +134,7 @@ function placeShowBtnAtPaper(){
   btn.style.display = 'block';
 }
 
-// function placeShowBtnAtPaper(){
-//   const btn = document.getElementById('showNewsPanel');
-//   const panelHidden = document.getElementById('newsPanel')?.classList.contains('is-hidden');
-//   if (!btn || !panelHidden || !newspaper) return;
 
-//   const r = getPlaneScreenRect(newspaper, 0.34, 0.24); // your plane size
-//   btn.style.left   = `${r.left}px`;
-//   btn.style.top    = `${r.top}px`;
-//   btn.style.width  = `${r.width}px`;
-//   btn.style.height = `${r.height}px`;
-//   btn.style.display = 'block';
-// }
 
 
 async function morphPanelToButton(){
@@ -212,16 +201,16 @@ function showMenuFromButton(){
   gsap.to(btn,   { duration:.3,  opacity:0, onComplete(){ btn.style.display='none'; }});
 }
 
-
+////Three .JS scene stuff 
 function init() {
   // Scene setup
   scene = new THREE.Scene();
  
-  scene.background = new THREE.Color(0x87CEEB); // light sky blue
+  scene.background = new THREE.Color(0x87CEEB); 
 
 
   camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
-  // camera.position.set(0, 1.6, 3);
+
  camera.position.set(
   -0.13027635446298505,
    0.1107977817900695,
@@ -251,8 +240,8 @@ function init() {
   const treeLoader = new GLTFLoader();
 treeLoader.load('/models/tree.glb', (gltf) => {
   let tree = gltf.scene;
-  tree.scale.set(0.7, 0.7, 0.7); // Adjust for size
-  tree.position.set(-1.5, -1.5, -0.5); // Place it to the side
+  tree.scale.set(0.7, 0.7, 0.7); 
+  tree.position.set(-1.5, -1.5, -0.5); 
   scene.add(tree);
 }, undefined, (error) => {
   console.error('Error loading tree model:', error);
@@ -263,8 +252,8 @@ const benchLoader = new GLTFLoader();
 benchLoader.load('/models/park_bench.glb', (gltf) => {
   const bench = gltf.scene;
   bench.scale.set(1, 1, 1);
-  bench.position.set(0, -1, 0); // Adjust as needed to fit Nana’s pose
-  bench.rotation.y = Math.PI; // Optional: rotate if needed
+  bench.position.set(0, -1, 0); 
+  bench.rotation.y = Math.PI; 
   scene.add(bench);
 }, undefined, (error) => {
   console.error('Error loading bench model:', error);
@@ -303,7 +292,7 @@ benchLoader.load('/models/park_bench.glb', (gltf) => {
     });
 
     granny.scale.set(1, 1, 1);
-    // granny.position.set(0, -0.8, 0);
+   
     granny.position.set(0, -1, .45);
     scene.add(granny);
 
@@ -315,7 +304,7 @@ benchLoader.load('/models/park_bench.glb', (gltf) => {
   });
 
   // Floor
-  const floorGeometry = new THREE.CircleGeometry(2.5, 64); // radius, segments
+  const floorGeometry = new THREE.CircleGeometry(2.5, 64); 
 
   const floorMaterial = new THREE.MeshStandardMaterial({
   color: 0x228B22, // forest green
@@ -334,7 +323,7 @@ benchLoader.load('/models/park_bench.glb', (gltf) => {
 function animate() {
    requestAnimationFrame(animate);
   if (mixer) mixer.update(0.016);
-  placeShowBtnAtPaper();       // keep the button “stuck” to the paper
+  
   renderer.render(scene, camera);
 }
 
@@ -524,7 +513,7 @@ async function fetchArticles() {
     const response = await fetch('/.netlify/functions/articles');
     const data = await response.json();
 
-    console.log("✅ Raw data returned:", data);  // ADD THIS LINE
+    console.log("✅ Raw data returned:", data);  
 
     // OLD: return data.articles || [];
   return data || []; // ✅ This matches what your function returns (an array directly)
@@ -544,7 +533,56 @@ function onWindowResize() {
   renderer.setSize(window.innerWidth, window.innerHeight);
 }
 
+async function preloadAllFullArticles(articles) {
+  console.log("📰 Articles to preload:", articles.length);
 
+  const mergedList = [];
+
+  for (const article of articles) {
+    console.log(`🔍 Checking article: ${article.title}`);
+
+    const result = await fetchFullArticleText(article.url);
+    console.log(`🔍 Raw result for ${article.title}:`, result);
+
+
+    if (!article.fullText) {
+      try {
+        const fullText = await fetchFullArticleText(article.url);
+        article.fullText = fullText;
+        mergedList.push({
+          title: article.title || 'Untitled',
+          url: article.url,
+          content: fullText || ''
+        });
+
+        console.log(`✅ Preloaded: ${article.title}`);
+      } catch (e) {
+        console.warn(`❌ Failed to fetch full text for ${article.url}:`, e.message);
+      }
+    } else {
+      console.log(`⚠️ Skipping, already has fullText: ${article.title}`);
+    }
+  }
+
+  const combined = mergedList
+    .map(a => `# ${a.title}\n${a.url}\n\n${a.content}`)
+    .join('\n\n---\n\n');
+
+  console.log('\n=== 🧾 MERGED FULL ARTICLES ===\n');
+  console.log(combined);
+  console.log('\n================================\n');
+}
+
+
+// async function preloadAllFullArticles(articles) {
+//   console.log("📰 Preloading full article texts...");
+//   for (const article of articles) {
+//     if (!article.fullText) {
+//       article.fullText = await fetchFullArticleText(article.url);
+//       console.log(`📖 Preloaded: ${article.url}`);
+//     }
+//   }
+// }
 async function renderArticles() {
   console.log("📦 renderArticles() started");
 
@@ -556,9 +594,12 @@ async function renderArticles() {
     return;
   }
 
-  status.textContent = "🕐 Loading articles..."; // Show loading state
+  status.textContent = "🕐 Loading articles...";
 
-  articles = await fetchArticles(); // ✅ Use global
+  articles = await fetchArticles();
+
+  // ✅ Preload all full article texts here
+  await preloadAllFullArticles(articles);
 
   headlinesDiv.innerHTML = "";
 
@@ -568,94 +609,50 @@ async function renderArticles() {
     return;
   }
 
-
-
   status.textContent = `Click a headline to hear it.`;
-for (const article of articles) {
-  const title = article.title || "No title";
-  const content = article.content || "No summary available.";
 
+  for (const article of articles) {
+    const title = article.title || "No title";
+    const content = article.content || "No summary available.";
 
+    const wrapper = document.createElement("div");
+    wrapper.style.display = "flex";
+    wrapper.style.alignItems = "center";
+    wrapper.style.gap = "10px";
+    wrapper.style.marginBottom = "0.75rem";
 
-  const wrapper = document.createElement("div");
-wrapper.style.display = "flex";
-wrapper.style.alignItems = "center";
-wrapper.style.gap = "10px";
-wrapper.style.marginBottom = "0.75rem";
+    const el = document.createElement("div");
+    el.innerHTML = `<strong>${title}</strong><br><small>${article.source}</small>`;
+    el.style.cursor = "pointer";
+    el.style.flex = "1";
 
-// Headline block
-const el = document.createElement("div");
-el.innerHTML = `<strong>${title}</strong><br><small>${article.source}</small>`;
-el.style.cursor = "pointer";
-el.style.flex = "1";
+    const linkBtn = document.createElement("button");
+    linkBtn.textContent = "🔗 Read";
+    linkBtn.style.padding = "4px 10px";
+    linkBtn.style.fontSize = "0.9rem";
+    linkBtn.style.cursor = "pointer";
 
-// Click-to-read button
-const linkBtn = document.createElement("button");
-linkBtn.textContent = "🔗 Read";
-linkBtn.style.padding = "4px 10px";
-linkBtn.style.fontSize = "0.9rem";
-linkBtn.style.cursor = "pointer";
+    linkBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      window.open(article.url, '_blank');
+    });
 
-linkBtn.addEventListener("click", (e) => {
-  e.stopPropagation(); // Prevent triggering speech
-  window.open(article.url, '_blank');
-});
+    el.addEventListener("click", async () => {
+      cancelSpeaking();
+      console.log(`🎤 Reading preloaded article from: ${article.url}`);
+      const result = await fetchFullArticleText(article.url);
+console.log(`🔍 Raw result for ${article.title}:`, result);
 
-// Listen on headline
-el.addEventListener("click", async () => {
-  cancelSpeaking();
-  console.log(`📥 Fetching full article from: ${article.url}`);
-  const fullText = await fetchFullArticleText(article.url);
-  const textToRead = fullText || `${title}. ${content}`;
-  await speakText(`Headline: ${title}. ${textToRead}`);
-});
+      const textToRead = article.fullText || `${title}. ${content}`;
+      await speakText(`Headline: ${title}. ${textToRead}`);
+    });
 
-wrapper.appendChild(el);
-wrapper.appendChild(linkBtn);
-headlinesDiv.appendChild(wrapper);
-
-  el.addEventListener("click", async () => {
-    cancelSpeaking(); // ✅ stop current voice
-
-    setPlaybackActive();
-    console.log(`📥 Fetching full article from: ${article.url}`);
-    const fullText = await fetchFullArticleText(article.url);
-
-    if (fullText) {
-      console.log("✅ Full article loaded. Preview:", fullText.slice(0, 300));
-    } else {
-      console.warn("⚠️ Full article not available, using fallback content.");
-    }
-
-    const textToRead = fullText || `${title}. ${content}`;
-    await speakText(`Headline: ${title}. ${textToRead}`);
- 
-
-   
-  });
-
-  headlinesDiv.appendChild(el);
-}
+    wrapper.appendChild(el);
+    wrapper.appendChild(linkBtn);
+    headlinesDiv.appendChild(wrapper);
+  }
 }
 
-
-function showMenuFromNewspaper() {
-  const panel = document.getElementById('newsPanel');
-  const center = newspaper.getWorldPosition(new THREE.Vector3());
-  const { x, y } = worldToScreen(center, camera, renderer);
-
-  // start panel tiny at the plane, then expand
-  panel.classList.remove('is-hidden');
-  const rect = panel.getBoundingClientRect();
-  const tX = x - (rect.left + rect.width / 2);
-  const tY = y - (rect.top + rect.height / 2);
-  panel.style.transformOrigin = 'top left';
-  panel.style.transform = `translate(${tX}px, ${tY}px) scale(0.1)`;
-  panel.style.opacity = 0;
-
-  gsap.to(panel, { duration: 0.45, opacity: 1, clearProps: 'transform', ease: 'power2.out' });
-  gsap.to(newspaper.material, { duration: 0.3, opacity: 0, ease: 'power2.out' });
-}
 
 // ----------------------------
 // Voice & Interaction Helpers
