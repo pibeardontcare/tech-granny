@@ -23,3 +23,9 @@ build/
 *.blend
 *.blend1
 *.blend2
+
+
+#ignore credntials
+
+credentials/
+

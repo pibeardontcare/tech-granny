@@ -92,7 +92,7 @@ export async function handler(event) {
       };
     }
 
-    // Process all URLs (sequential to be gentle; switch to Promise.all for speed)
+    // Process all URLs 
     const results = [];
     for (const u of urls) {
       try {
@@ -117,9 +117,8 @@ export async function handler(event) {
       console.log('\n=======================\n');
     }
 
-    // Backward compatible response:
-    // - if a single URL was passed, return a single object
-    // - if multiple, return { results, merged }
+
+
     const isSingle = !Array.isArray(body.urls) && !!body.url;
     const payload = isSingle ? results[0] : { results, merged };
 

@@ -41,33 +41,57 @@ let nanaIsPreparing = false;
 let scene, camera, renderer, raycaster, mouse, mixer, granny, newspaper, controls;
 
 
-const NANA_ROUTE = '/.netlify/functions/nana_explain';
+// const NANA_ROUTE = '/.netlify/functions/nana_explain';
 
-// Call the Netlify route with a list of URLs (or pass values to guide Nana)
-async function nanaExplain(urls, values = []) {
-  const res = await fetch(NANA_ROUTE, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ urls, values })
-  });
-  if (!res.ok) throw new Error(await res.text());
-  return res.json(); // { count, doc, items }
-}
+// // Call the Netlify route with a list of URLs (or pass values to guide Nana)
+// async function nanaExplain(urls, values = []) {
+//   const res = await fetch(NANA_ROUTE, {
+//     method: 'POST',
+//     headers: { 'Content-Type': 'application/json' },
+//     body: JSON.stringify({ urls, values })
+//   });
+//   if (!res.ok) throw new Error(await res.text());
+//   return res.json(); // { count, doc, items }
+// }
 
-// Convenience: download any text as a .md file
-function downloadMarkdown(text, filename = 'nana_explains.md') {
-  const blob = new Blob([text], { type: 'text/markdown' });
-  const url = URL.createObjectURL(blob);
-  const a = document.getElementById('downloadMd');
-  if (a) {
-    a.href = url;
-    a.download = filename;
-    a.style.display = 'inline';
-    a.textContent = '⬇️ Download markdown';
+// // Convenience: download any text as a .md file
+// function downloadMarkdown(text, filename = 'nana_explains.md') {
+//   const blob = new Blob([text], { type: 'text/markdown' });
+//   const url = URL.createObjectURL(blob);
+//   const a = document.getElementById('downloadMd');
+//   if (a) {
+//     a.href = url;
+//     a.download = filename;
+//     a.style.display = 'inline';
+//     a.textContent = '⬇️ Download markdown';
+//   }
+// }
+
+
+async function runNanaTake() {
+  const status = document.getElementById('status');
+  if (status) status.textContent = 'Nana is reading and thinking…';
+
+  const res = await fetch('/.netlify/functions/nana_take', { method: 'POST' });
+  const raw = await res.text();
+  let out;
+  try { out = JSON.parse(raw); } catch { console.error('nana_take error (non-JSON):', raw); return; }
+
+  if (out.ok && out.url) {
+    if (status) status.innerHTML = `Nana’s Calm Summary saved to <a target="_blank" href="${out.url}">${out.title || 'today’s doc'}</a>.`;
+  } else {
+    if (status) status.textContent = `Nana failed: ${out.error || 'Unknown error'}`;
   }
+
+  // TBD: feed items TTS pipeline:
+  // nanaItems = out.items?.map(i => ({ title: i.title, url: i.url, md: `Summary: ${i.summary}\n\nNana’s take: ${i.nana_take}` })) || [];
 }
 
-// Init scene
+document.getElementById('nanaExplainBtn')?.addEventListener('click', runNanaTake);
+
+
+// Init scenenpm list openai
+
 init();
 animate();
 
@@ -532,57 +556,82 @@ function onWindowResize() {
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
 }
-
 async function preloadAllFullArticles(articles) {
   console.log("📰 Articles to preload:", articles.length);
 
   const mergedList = [];
+  const seen = new Set(); // (optional) dedupe by URL within this run
 
   for (const article of articles) {
+    const url = article.url || '';
+    if (url && seen.has(url)) continue;
+    if (url) seen.add(url);
+
     console.log(`🔍 Checking article: ${article.title}`);
 
-    const result = await fetchFullArticleText(article.url);
-    console.log(`🔍 Raw result for ${article.title}:`, result);
+    try {
+      // fetch once (use existing cache if present)
+      const fullText = article.fullText || await fetchFullArticleText(url);
 
-
-    if (!article.fullText) {
-      try {
-        const fullText = await fetchFullArticleText(article.url);
-        article.fullText = fullText;
-        mergedList.push({
-          title: article.title || 'Untitled',
-          url: article.url,
-          content: fullText || ''
-        });
-
-        console.log(`✅ Preloaded: ${article.title}`);
-      } catch (e) {
-        console.warn(`❌ Failed to fetch full text for ${article.url}:`, e.message);
+      if (!fullText) {
+        console.warn(`⚠️ No content for ${url}`);
+        continue;
       }
-    } else {
-      console.log(`⚠️ Skipping, already has fullText: ${article.title}`);
+
+      article.fullText = fullText; // cache on the object for playback
+      mergedList.push({
+        title: article.title || 'Untitled',
+        url,
+        content: fullText
+      });
+
+      console.log(`✅ Preloaded: ${article.title}`);
+    } catch (e) {
+      console.warn(`❌ Failed to fetch full text for ${url}:`, e.message);
     }
   }
 
-  const combined = mergedList
-    .map(a => `# ${a.title}\n${a.url}\n\n${a.content}`)
-    .join('\n\n---\n\n');
+  // (optional) pretty log of what we’ll save
+  if (mergedList.length) {
+    const combined = mergedList
+      .map(a => `# ${a.title}\n${a.url}\n\n${a.content}`)
+      .join('\n\n---\n\n');
+    console.log('\n=== 🧾 MERGED FULL ARTICLES ===\n');
+    console.log(combined);
+    console.log('\n================================\n');
+  }
 
-  console.log('\n=== 🧾 MERGED FULL ARTICLES ===\n');
-  console.log(combined);
-  console.log('\n================================\n');
+  // ✅ Save to your Netlify function (Google Docs)
+  // inside preloadAllFullArticles, after mergedList is built
+try {
+  const res = await fetch('/.netlify/functions/saveDailyDoc', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ articles: mergedList }),
+  });
+
+  const raw = await res.text();      // ⬅️ read raw first
+  if (!res.ok) {
+    console.error('saveDailyDoc raw error:', raw); // shows TypeError stack
+    throw new Error(`saveDailyDoc failed (${res.status})`);
+  }
+
+  const out = JSON.parse(raw);
+  console.log('📝 Daily Doc:', out);
+  const status = document.getElementById('status');
+  if (status && out.url) {
+    status.innerHTML = `Saved to <a target="_blank" href="${out.url}">${out.title || 'today’s doc'}</a> (${out.added} new, ${out.skipped} skipped).`;
+  }
+} catch (err) {
+  console.error('Failed to save Daily Doc:', err);
 }
 
 
-// async function preloadAllFullArticles(articles) {
-//   console.log("📰 Preloading full article texts...");
-//   for (const article of articles) {
-//     if (!article.fullText) {
-//       article.fullText = await fetchFullArticleText(article.url);
-//       console.log(`📖 Preloaded: ${article.url}`);
-//     }
-//   }
-// }
+  return mergedList; 
+}
+
+
+
 async function renderArticles() {
   console.log("📦 renderArticles() started");
 
@@ -596,10 +645,11 @@ async function renderArticles() {
 
   status.textContent = "🕐 Loading articles...";
 
-  articles = await fetchArticles();
+  // inside renderArticles()
+articles = await fetchArticles();
+await preloadAllFullArticles(articles);
 
-  // ✅ Preload all full article texts here
-  await preloadAllFullArticles(articles);
+
 
   headlinesDiv.innerHTML = "";
 
