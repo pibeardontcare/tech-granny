@@ -92,6 +92,8 @@ body {
   cursor: pointer;
 }
 
+#newsPanel.is-hidden { display: none; }
+
 /* the paper “text” button should look like printed text */
 #showNewsPanel {
   background: transparent !important;

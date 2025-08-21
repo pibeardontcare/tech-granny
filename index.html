@@ -8,7 +8,9 @@
 <body>
 
   <!-- NEWS PANEL -->
-  <div id="newsPanel">
+   <!-- was: <div id="newsPanel"> -->
+
+  <div id="newsPanel" class="is-hidden">
     <button id="hideNewsPanel" class="panel-action">Hide News</button>
 
     <div id="status">Fetching the latest news…</div>
@@ -16,7 +18,9 @@
   </div>
 
   <!-- TOGGLE BUTTON (shown when panel is hidden) -->
-  <button id="showNewsPanel"> </button>
+
+ 
+
 
   <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
@@ -26,6 +30,7 @@
   <div style="display:flex; flex-direction:column; align-items:center; gap:0.5rem; margin-top:1rem;">
   
   </div>
+<button id="showNewsPanel" class="invisible-hotspot is-hidden">Show News</button>
 
   <a id="downloadMd" style="display:none;margin-left:.5rem;">Download .md</a>
   <pre id="nanaExplainOut" style="white-space:pre-wrap;margin-top:1rem;"></pre>
@@ -33,7 +38,7 @@
   <!-- Controls bar at bottom -->
   <div id="controls" style="position:absolute; bottom:0; left:0; width:100%; background:#fff; padding:1rem; display:flex; justify-content:center; gap:1rem;">
       <button id="nanaExplainBtn" class="blue-btn">☕️ Nana's Take</button>
-    <button id="playArticlesBtn" class="blue-btn">▶️ Play Articles</button>
+    <button id="playArticlesBtn" class="blue-btn">👓 Read News</button>
   </div>
 </body>
 </html>

@@ -37,7 +37,10 @@ let currentNanaIndex = 0;
 let nanaIsPlaying = false;
 let nanaIsPreparing = false;
 let nanaIsPaused = false;
-
+let isSpeaking = false;
+let useElevenLabs = true; 
+let currentAudio = null;
+let currentSpeakingId = 0;
 
 // --- Nana stall phrases (rotate while summaries load) ---
 const NANA_STALLS = [
@@ -317,46 +320,6 @@ function placeShowBtnAtPaper(){
 
 
 
-async function morphPanelToButton(){
-  const panel = document.getElementById('newsPanel');
-  const btn   = document.getElementById('showNewsPanel');
-  const rect  = panel.getBoundingClientRect();
-  const target= getPlaneScreenRect(newspaper, 0.34, 0.24);
-
-  // lock panel
-  panel.style.willChange = 'transform,opacity';
-  panel.style.transformOrigin = 'top left';
-  panel.style.position='fixed';
-  panel.style.left = rect.left+'px';
-  panel.style.top  = rect.top +'px';
-  panel.style.width= rect.width+'px';
-  panel.style.height=rect.height+'px';
-
-  // reveal button at the paper
-  btn.style.display = 'block';
-  placeShowBtnAtPaper();
-  btn.style.opacity = 0;
-
-  await Promise.all([
-    gsap.to(panel, {
-      duration:.45, ease:'power2.inOut', opacity:0,
-      onUpdate(){
-        const tX = target.cx - (rect.left + rect.width/2);
-        const tY = target.cy - (rect.top  + rect.height/2);
-        const sX = target.width/rect.width, sY = target.height/rect.height;
-        panel.style.transform = `translate(${tX}px,${tY}px) scale(${sX},${sY})`;
-      },
-      onComplete(){
-        panel.classList.add('is-hidden');
-        panel.style.transform=''; panel.style.opacity='';
-        panel.style.position=''; panel.style.left=''; panel.style.top='';
-        panel.style.width=''; panel.style.height=''; panel.style.willChange='';
-      }
-    }),
-    gsap.to(btn, { duration:.45, ease:'power2.inOut', opacity:1 })
-  ]);
-}
-
 function showMenuFromButton(){
   const panel = document.getElementById('newsPanel');
   const btn   = document.getElementById('showNewsPanel');
@@ -517,6 +480,32 @@ function animate() {
 
 
 window.addEventListener('DOMContentLoaded', () => {
+
+
+  const panel = document.getElementById('newsPanel');
+  const showBtn = document.getElementById('showNewsPanel');
+  const hideBtn = document.getElementById('hideNewsPanel');
+
+  // ensure closed on load
+  panel.classList.add('is-hidden');
+
+  // show the invisible overlay aligned to the paper
+  showBtn.style.display = 'block';
+  placeShowBtnAtPaper();
+
+  // fallback/open via DOM button (same animation as raycast)
+  showBtn.addEventListener('click', (e) => {
+    e.preventDefault(); e.stopPropagation();
+    if (panel.classList.contains('is-hidden')) {
+      showMenuFromButton();
+    }
+  });
+
+  // close via "Hide News" button
+  hideBtn.addEventListener('click', (e) => {
+    e.preventDefault(); e.stopPropagation();
+    morphPanelToButton();
+  });
   console.log("[DOM] ready");
 
   // ---- Nana explain wiring (ALWAYS runs) ----
@@ -639,6 +628,24 @@ window.addEventListener('DOMContentLoaded', () => {
 }
 
 });
+
+
+
+
+
+// showBtn.addEventListener('click', () => console.log('✅ showBtn clicked'));
+// hideBtn.addEventListener('click', () => console.log('✅ hideBtn clicked'));
+// nanaBtn.addEventListener('click', () => console.log('✅ nanaBtn clicked'));
+
+
+
+
+
+
+
+
+
+
 renderer.domElement.addEventListener('pointerdown', (ev) => {
   const rect = renderer.domElement.getBoundingClientRect();
   mouse.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
@@ -845,10 +852,7 @@ console.log(`🔍 Raw result for ${article.title}:`, result);
 // Voice & Interaction Helpers
 // ----------------------------
 
-let isSpeaking = false;
-let useElevenLabs = true; 
-let currentAudio = null;
-let currentSpeakingId = 0;
+
 
 
 async function speakText(text) {
@@ -1246,3 +1250,46 @@ async function playNanaFrom(index) {
 }
 
 
+
+
+function morphPanelToButton() {
+  const panel = document.getElementById('newsPanel');
+  const btn = document.getElementById('showNewsPanel');
+  if (!panel || !btn || !newspaper) return;
+
+  const target = getPlaneScreenRect(newspaper, 0.34, 0.24);
+  const full = panel.getBoundingClientRect();
+
+  panel.style.position = 'fixed';
+  panel.style.left = full.left + 'px';
+  panel.style.top = full.top + 'px';
+  panel.style.width = full.width + 'px';
+  panel.style.height = full.height + 'px';
+  panel.style.transformOrigin = 'top left';
+
+  const sX = target.width / full.width;
+  const sY = target.height / full.height;
+  const tX = target.cx - (full.left + full.width / 2);
+  const tY = target.cy - (full.top + full.height / 2);
+
+  gsap.to(panel, {
+    duration: 0.45,
+    transform: `translate(${tX}px, ${tY}px) scale(${sX}, ${sY})`,
+    opacity: 0,
+    ease: 'power2.in',
+    onComplete() {
+      panel.classList.add('is-hidden');
+      panel.style.position = '';
+      panel.style.left = '';
+      panel.style.top = '';
+      panel.style.width = '';
+      panel.style.height = '';
+      panel.style.transform = '';
+      panel.style.opacity = '';
+    }
+  });
+
+  btn.style.display = 'block';
+  btn.style.opacity = 0;
+  gsap.to(btn, { duration: 0.3, opacity: 1 });
+}
