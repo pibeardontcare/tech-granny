@@ -32,7 +32,7 @@ export async function handler(event, context) {
     const res = await fetch(`${baseUrl}?${params}`);
     const data = await res.json();
 
-      console.log('🔍 Full NewsAPI response:', JSON.stringify(data, null, 2));
+  //console.log('🔍 Full NewsAPI response:', JSON.stringify(data, null, 2));
     console.log('📰 Article count:', data.articles?.length || 0);
 
     if (data.articles && data.articles.length > 0) {

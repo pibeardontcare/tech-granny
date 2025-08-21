@@ -100,7 +100,7 @@ export async function handler(event) {
 
         // Per-article log (what you already had)
         console.log(`\n=== FULL ARTICLE (${r.title || 'Untitled'}) ===\n`);
-        console.log(r.content);
+      //  console.log(r.content);
         console.log('\n===============================\n');
 
         results.push(r);
@@ -113,8 +113,8 @@ export async function handler(event) {
     const merged = buildMerged(results);
     if (merged) {
       console.log('\n=== MERGED ARTICLES ===\n');
-      console.log(merged);
-      console.log('\n=======================\n');
+      //console.log(merged);
+      //console.log('\n=======================\n');
     }
 
 
