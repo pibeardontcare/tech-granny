@@ -16,6 +16,22 @@ body {
   color: #555;
 }
 
+.blue-btn {
+  background-color: #007BFF; /* Bootstrap blue */
+  color: #fff;
+  border: none;
+  padding: 0.6rem 1.2rem;
+  font-size: 1rem;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.blue-btn:hover {
+  background-color: #0056b3;
+}
+
+
 #headlines {
   margin-top: 2rem;
   padding-bottom: 4rem;
