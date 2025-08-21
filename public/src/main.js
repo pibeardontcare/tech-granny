@@ -36,6 +36,7 @@ let nanaItems = [];
 let currentNanaIndex = 0;
 let nanaIsPlaying = false;
 let nanaIsPreparing = false;
+let nanaIsPaused = false;
 
 
 // --- Nana stall phrases (rotate while summaries load) ---
@@ -245,122 +246,7 @@ async function runNanaTake() {
   }
 }
 
-// async function runNanaTake() {
-//   const status = document.getElementById('status');
-//   if (status) status.textContent = 'Nana is thinking…';
-
-//   try {
-//     // Build results array from preloaded full text (fallback to summary)
-//     const results = articles.map(a => ({
-//       url: a.url,
-//       title: a.title,
-//       content: a.fullText || a.content || ''
-//     })).filter(r => r.content);
-
-//     if (!results.length) {
-//       if (status) status.textContent = 'No full articles to summarize.';
-//       return;
-//     }
-
-//     // Prep Nana streaming state
-//     nanaItems = [];
-//     playMode = 'nana';
-//     nanaIsPreparing = true;       // <- tells player more is coming
-//     currentNanaIndex = 0;
-//     setNanaBtnLabel();
-
-//     // Start streaming batches; each item triggers onItem
-//     await summarizeInBatches(results, 3, (s) => {
-//       // Log, store, and start playback on first arrival
-//       console.log(`\n=== Nana’s Take (${s.title || s.url || 'Untitled'}) ===\n`);
-//       console.log(s.summary || '(no summary)');
-//       console.log('\n===============================\n');
-
-//       const item = { title: s.title || s.url || 'Untitled', url: s.url, md: s.summary || '' };
-//       nanaItems.push(item);
-
-//       // Kick off playback at the first streamed item
-//       if (!nanaIsPlaying && !shouldStop) {
-//         startNanaPlayback();
-//       }
-//     });
-
-//     // Streaming complete
-//     nanaIsPreparing = false;
-//     setNanaBtnLabel();
-//     if (status) status.textContent = `Nana explained ${nanaItems.length} article(s).`;
-
-//   } catch (err) {
-//     console.error('summarizeFromFullArticle failed:', err);
-//     if (status) status.textContent = 'Nana crashed (see console).';
-//     nanaIsPreparing = false;
-//     setNanaBtnLabel();
-//   }
-// }
-// async function runNanaTake() {
-//   const status = document.getElementById('status');
-//   if (status) status.textContent = 'Nana is thinking…';
-
-//   try {
-//     const results = articles
-//       .map(a => ({ url: a.url, title: a.title, content: a.fullText || a.content || '' }))
-//       .filter(r => r.content);
-
-//     if (!results.length) {
-//       if (status) status.textContent = 'No full articles to summarize.';
-//       return;
-//     }
-
-//     stopAllAudio();
-//     nanaItems = [];
-//     playMode = 'nana';
-//     nanaIsPreparing = true;
-//     currentNanaIndex = 0;
-//     setNanaBtnLabel();
-
-//     const out = await runNanaSummariesOnce(results);
-//     if (!out.ok) throw new Error(out.error || 'Unknown error');
-
-//     if (status && out.url) {
-//       status.innerHTML = `Nana’s Summaries saved to <a target="_blank" href="${out.url}">today’s doc</a>.`;
-//     }
-
-//     // Map server items -> your TTS queue
-//     nanaItems = (out.items || []).map(it => ({
-//       title: it.title || it.url || 'Untitled',
-//       url: it.url,
-//       md: [
-//         `**Summary**\n${it.summary || ''}`,
-//         it.q1_evolution ? `**Q1 — XR/AI Impact / Problems it can Solve**\n${it.q1_evolution}` : '',
-//         it.q2_1950s_view ? `**Q2 — What Nana Would’ve Thought in the 1950s**\n${it.q2_1950s_view}` : '',
-//         it.q3_future_good ? `**Q3 — The Good Ahead & Creative Uses (Specifics)**\n${it.q3_future_good}` : '',
-//         it.nana_take ? `**Nana’s Take**\n${it.nana_take}` : ''
-//       ].filter(Boolean).join('\n\n')
-//     }));
-
-//     // Start playback once, with the whole set
-//     if (nanaItems.length) {
-//       currentNanaIndex = 0;
-//       startNanaPlayback();
-//     }
-
-//     nanaIsPreparing = false;
-//     setNanaBtnLabel();
-//     if (status) status.textContent = `Nana explained ${nanaItems.length} article(s).`;
-
-//   } catch (err) {
-//     console.error('nana_summaries failed:', err);
-//     const status = document.getElementById('status');
-//     if (status) status.textContent = 'Nana crashed (see console).';
-//     nanaIsPreparing = false;
-//     setNanaBtnLabel();
-//   }
-// }
-
-//document.getElementById('nanaExplainBtn')?.addEventListener('click', runNanaTake);
-
-
-// Init scenenpm list openai
+// Init scene
 
 init();
 animate();
@@ -628,96 +514,6 @@ function animate() {
 // ----------------------------
 
 
-// window.addEventListener('DOMContentLoaded', () => {
-//   console.log("[DOM] ready");
-
-//   // ---- Nana explain wiring (ALWAYS runs) ----
-//   const nanaBtn = document.getElementById('nanaExplainBtn');
-//   setNanaBtnLabel();
-
-//   if (!nanaBtn) {
-//     console.error("[DOM] Missing #nanaExplainBtn — Nana won’t work.");
-//   } else {
-//     nanaBtn.addEventListener('click', async (e) => {
-//       e.preventDefault();
-//       console.log("[DOM] Nana button clicked");
-
-//       if (nanaIsPlaying) { stopNana(); return; }
-//       stopAllAudio();
-
-//       // Clear any stale items
-//       nanaItems = [];
-//       currentNanaIndex = 0;
-
-//       // Start the stall loop *immediately*
-//       const stallPromise = stallUntilFirstSummary({ maxMs: 25000 }).catch(console.warn);
-
-//       // Kick off summaries (stream/batch)
-//       runNanaTake()
-//         .then(() => {
-//           // If stall still going, stop it
-//           nanaStallLoopActive = false;
-
-//           // If we have items and not already playing, start playback
-//           if (nanaItems.length && !nanaIsPlaying) {
-//             stallOrPlaySummaries();
-
-//             // startNanaPlayback();
-//           }
-//         })
-//         .catch(err => {
-//           nanaStallLoopActive = false;
-//           console.error('Nana summaries failed:', err);
-//           speakText("Hmm, something went wrong fetching the stories, dear.");
-//         });
-//     }); 
-//   } // 
-
-//   // ---- News panel wiring 
-//   const newsPanel    = document.getElementById("newsPanel");
-//   const showNewsBtn  = document.getElementById("showNewsPanel");
-//   const hideNewsBtn  = document.getElementById("hideNewsPanel");
-
-//   if (!newsPanel || !showNewsBtn || !hideNewsBtn) {
-//     console.warn("[DOM] Missing one or more news panel elements, skipping panel wiring.");
-//   } else {
-//     newsPanel.classList.add("is-hidden");   // panel hidden by default
-//     showNewsBtn.style.display = "block";    // paper text visible
-
-//     hideNewsBtn.addEventListener('click', (e) => {
-//       e.preventDefault(); e.stopPropagation();
-//       console.log("[DOM] hideNewsBtn clicked");
-//       morphPanelToButton();
-//     });
-
-//     showNewsBtn.addEventListener('click', (e) => {
-//       e.preventDefault(); e.stopPropagation();
-//       console.log("[DOM] showNewsBtn clicked");
-//       showMenuFromButton();
-//     });
-//   }
-
-//   // ---- Playback + voice buttons ----
-//   const playBtn  = document.getElementById('togglePlayBtn');
-//   const readAll  = document.getElementById('readAllBtn');
-//   const voiceBtn = document.getElementById('elevenLabsBtn');
-
-//   playBtn?.addEventListener('click', togglePlayPause);
-//   readAll?.addEventListener('click', async () => {
-//     await readAllWithGoogleVoice();
-//   });
-//   voiceBtn?.addEventListener('click', async () => {
-//     cancelSpeaking();
-//     useElevenLabs = !useElevenLabs;
-
-//     if (useElevenLabs) {
-//       voiceBtn.textContent = '🧠 Voice: ElevenLabs';
-//       fetchElevenLabsCredits().catch(console.warn);
-//     } else {
-//       voiceBtn.textContent = '🔈 Voice: Browser';
-//     }
-//   });
-// }); 
 
 
 window.addEventListener('DOMContentLoaded', () => {
@@ -774,109 +570,75 @@ window.addEventListener('DOMContentLoaded', () => {
   }
 
   if (!nanaBtn) {
-    console.error("[DOM] Missing #nanaExplainBtn — Nana won’t work.");
-  } else {
-    nanaBtn.addEventListener('click', async (e) => {
-      e.preventDefault();
-      console.log("[DOM] Nana button clicked");
+  console.error("[DOM] Missing #nanaExplainBtn — Nana won’t work.");
+} else {
+  nanaBtn.addEventListener('click', async (e) => {
+    e.preventDefault();
+    console.log("[DOM] Nana button clicked");
 
-      // Toggle pause if currently speaking
-      if (nanaIsPlaying) { stopNana(); return; }
+    // If playing and not paused -> pause (do NOT restart)
+    if (nanaIsPlaying && !nanaIsPaused) {
+      pauseNana();
+      return;
+    }
 
-      // Reset state and stop anything that’s speaking
-      stopAllAudio();
-      nanaItems = [];
-      currentNanaIndex = 0;
+    // If playing and paused -> resume (continue where we left off)
+    if (nanaIsPlaying && nanaIsPaused) {
+      resumeNana();
+      return;
+    }
 
-      try {
-        setNanaBtnLabel();
+    // Otherwise: start normal flow (fresh start)
+    stopAllAudio();            // hard stop anything else (articles etc)
+    nanaItems = [];
+    currentNanaIndex = 0;
+    nanaIsPaused = false;
 
-        // 1) Try read-only first (play if today’s summaries already exist)
-        const existing = await fetchTodaySummaries();
-        if (existing.length) {
-          nanaItems = existing.map(it => ({ title: it.title, summary: it.summary }));
-          console.log("✅ Playing existing summaries");
-          await playSummariesOnce();
-          return;
-        }
+    try {
+      setNanaBtnLabel();
 
-        // 2) Otherwise, fall back to creating today’s summaries (no stall chatter)
-        console.log("🛠️ No existing summaries. Creating via runNanaTake()...");
-        nanaIsPreparing = true;
-        await runNanaTake();   // ← your pipeline that fills `nanaItems` (or writes the doc)
-        nanaIsPreparing = false;
-
-        // If the creator didn't populate nanaItems, try fetching once more from Google
-        if (!nanaItems.length) {
-          console.log("🔁 Creation finished but nanaItems empty; re-fetching summaries...");
-          const created = await fetchTodaySummaries();
-          nanaItems = created.map(it => ({ title: it.title, summary: it.summary }));
-        }
-
-        if (nanaItems.length) {
-          console.log("▶️ Playing newly created summaries");
-          await playSummariesOnce();
-        } else {
-          console.warn("🟡 Still no summaries after creation.");
-          await speakText("Sorry dear, I don’t see today’s summaries yet.");
-        }
-      } catch (err) {
-        console.error("❌ Nana click flow failed:", err);
-        await speakText("Hmm, something went wrong fetching the summaries, dear.");
-      } finally {
-        nanaIsPlaying = false;
-        currentNanaIndex = 0;
-        setNanaBtnLabel();
+      // 1) Try read-only first (play if today’s summaries already exist)
+      const existing = await fetchTodaySummaries();
+      if (existing.length) {
+        nanaItems = existing.map(it => ({ title: it.title, summary: it.summary }));
+        console.log("✅ Playing existing summaries");
+        await playSummariesOnce();
+        return;
       }
-    });
-  } // 
 
-  // ---- News panel wiring 
-  const newsPanel    = document.getElementById("newsPanel");
-  const showNewsBtn  = document.getElementById("showNewsPanel");
-  const hideNewsBtn  = document.getElementById("hideNewsPanel");
+      // 2) Otherwise, fall back to creating today’s summaries (no stall chatter)
+      console.log("🛠️ No existing summaries. Creating via runNanaTake()...");
+      nanaIsPreparing = true;
+      await runNanaTake();   // your pipeline that fills nanaItems or writes the doc
+      nanaIsPreparing = false;
 
-  if (!newsPanel || !showNewsBtn || !hideNewsBtn) {
-    console.warn("[DOM] Missing one or more news panel elements, skipping panel wiring.");
-  } else {
-    newsPanel.classList.add("is-hidden");   // panel hidden by default
-    showNewsBtn.style.display = "block";    // paper text visible
+      // If the creator didn't populate nanaItems, try fetching once more from Google
+      if (!nanaItems.length) {
+        console.log("🔁 Creation finished but nanaItems empty; re-fetching summaries...");
+        const created = await fetchTodaySummaries();
+        nanaItems = created.map(it => ({ title: it.title, summary: it.summary }));
+      }
 
-    hideNewsBtn.addEventListener('click', (e) => {
-      e.preventDefault(); e.stopPropagation();
-      console.log("[DOM] hideNewsBtn clicked");
-      morphPanelToButton();
-    });
-
-    showNewsBtn.addEventListener('click', (e) => {
-      e.preventDefault(); e.stopPropagation();
-      console.log("[DOM] showNewsBtn clicked");
-      showMenuFromButton();
-    });
-  }
-
-  // ---- Playback + voice buttons ----
-  const playBtn  = document.getElementById('togglePlayBtn');
-  const readAll  = document.getElementById('readAllBtn');
-  const voiceBtn = document.getElementById('elevenLabsBtn');
-
-  playBtn?.addEventListener('click', togglePlayPause);
-  readAll?.addEventListener('click', async () => {
-    await readAllWithGoogleVoice();
-  });
-  voiceBtn?.addEventListener('click', async () => {
-    cancelSpeaking();
-    useElevenLabs = !useElevenLabs;
-
-    if (useElevenLabs) {
-      voiceBtn.textContent = '🧠 Voice: ElevenLabs';
-      fetchElevenLabsCredits().catch(console.warn);
-    } else {
-      voiceBtn.textContent = '🔈 Voice: Browser';
+      if (nanaItems.length) {
+        console.log("▶️ Playing newly created summaries");
+        await playSummariesOnce();
+      } else {
+        console.warn("🟡 Still no summaries after creation.");
+        await speakText("Sorry dear, I don’t see today’s summaries yet.");
+      }
+    } catch (err) {
+      console.error("❌ Nana click flow failed:", err);
+      await speakText("Hmm, something went wrong fetching the summaries, dear.");
+    } finally {
+      nanaIsPlaying = false;
+      nanaIsPaused = false;
+      currentNanaIndex = 0;
+      setNanaBtnLabel();
     }
   });
-});
+}
 
+});
 renderer.domElement.addEventListener('pointerdown', (ev) => {
   const rect = renderer.domElement.getBoundingClientRect();
   mouse.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
@@ -1358,6 +1120,19 @@ async function fetchElevenLabsCredits() {
 //jhelpewrs
 
 
+// function setNanaBtnLabel() {
+//   const btn = document.getElementById('nanaExplainBtn');
+//   if (!btn) return;
+//   if (nanaIsPreparing) {
+//     btn.textContent = '⏳ Preparing Nana…';
+//     btn.disabled = true;
+//     return;
+//   }
+//   btn.disabled = false;
+//   btn.textContent = nanaIsPlaying ? '⏸️ Pause explaining' : '▶️ Nana’s Take';
+// }
+
+
 function setNanaBtnLabel() {
   const btn = document.getElementById('nanaExplainBtn');
   if (!btn) return;
@@ -1367,8 +1142,14 @@ function setNanaBtnLabel() {
     return;
   }
   btn.disabled = false;
-  btn.textContent = nanaIsPlaying ? '⏸️ Pause explaining' : '▶️ Nana’s Take';
+
+  if (nanaIsPlaying) {
+    btn.textContent = nanaIsPaused ? '▶️ Resume Nana' : '⏸️ Pause explaining';
+  } else {
+    btn.textContent = '▶️ Nana’s Take';
+  }
 }
+
 function stopAllAudio() {
   shouldStop = true;
   nanaStallLoopActive = false;   // <— add this
@@ -1379,6 +1160,38 @@ function stopAllAudio() {
     currentAudio.src = '';
     currentAudio = null;
   }
+}
+
+
+function pauseNana() {
+  nanaIsPaused = true;
+
+  // Pause ElevenLabs audio if that's what's playing
+  if (useElevenLabs && currentAudio && !currentAudio.paused) {
+    currentAudio.pause();
+  }
+
+  // Pause browser TTS if that's what's playing
+  if (speechSynthesis.speaking && !speechSynthesis.paused) {
+    speechSynthesis.pause();
+  }
+
+  setNanaBtnLabel();
+}
+
+function resumeNana() {
+  // If we have ElevenLabs audio paused, resume that
+  if (useElevenLabs && currentAudio && currentAudio.paused) {
+    currentAudio.play().catch(console.warn);
+  }
+
+  // If browser TTS is paused, resume it
+  if (speechSynthesis.paused) {
+    speechSynthesis.resume();
+  }
+
+  nanaIsPaused = false;
+  setNanaBtnLabel();
 }
 
 function stopNana() {
@@ -1429,167 +1242,7 @@ async function playNanaFrom(index) {
     const status = document.getElementById('status');
     if (status) status.textContent = '✔️ Nana finished.';
   }
-// }
-// async function stallOrPlaySummaries() {
-//   playMode = 'nana';
-//   nanaIsPlaying = true;
-//   shouldStop = false;
-//   setNanaBtnLabel();
 
-//   const stallLines = [
-//     "Still fetching the stories, dear…",
-//     "Almost there, just warming up the kettle…",
-//     "One moment, sweet pea—lining up the pages…"
-//   ];
-//   let stallIdx = 0;
-
-//   console.log("▶️ stallOrPlaySummaries started", {
-//     nanaItemsLength: nanaItems.length,
-//     currentNanaIndex,
-//     nanaIsPreparing,
-//   });
-
-//   while (!shouldStop) {
-//     console.log("🔄 Loop tick", {
-//       nanaItemsLength: nanaItems.length,
-//       currentNanaIndex,
-//       nanaIsPreparing,
-//     });
-
-//     // ✅ Prefer summaries when available
-//     if (nanaItems.length > currentNanaIndex) {
-//       const idx = currentNanaIndex;
-//       const item = nanaItems[idx];
-
-//       console.log("📄 Found summary to read:", { idx, title: item.title });
-
-//       const preface = (idx === 0)
-//         ? "Okay, here’s the first article."
-//         : "Here’s the next one.";
-
-//       const speech = `${preface} ${item.title}. ${item.summary || ''}`;
-//       console.log("🗣️ Nana speaking:", speech.slice(0, 200));
-
-//       currentNanaIndex = idx;
-//       await speakText(speech);
-//       currentNanaIndex = idx + 1;
-//       continue;
-//     }
-
-//     // ❌ No summaries yet
-//     if (!nanaIsPreparing) {
-//       console.log("⏹ nanaIsPreparing is false, stopping stall loop");
-//       break;
-//     }
-
-//     const line = stallLines[stallIdx++ % stallLines.length];
-//     console.log("⏳ Stall line:", line);
-//     await speakText(line);
-//     await new Promise(r => setTimeout(r, 1200));
-//   }
-
-//   if (!shouldStop) {
-//     console.log("✅ stallOrPlaySummaries finished normally");
-//     nanaIsPlaying = false;
-//     currentNanaIndex = 0;
-//     setNanaBtnLabel();
-//     const status = document.getElementById('status');
-//     if (status) status.textContent = '✔️ Nana finished.';
-//   } else {
-//     console.log("⏹ stallOrPlaySummaries aborted (shouldStop)");
-//   }
-// }
-
-
-// async function stallOrPlaySummaries() {
-//   playMode = 'nana';
-//   nanaIsPlaying = true;
-//   shouldStop = false;
-//   setNanaBtnLabel();
-
-//   // optional: rotate through a few stall lines
-//   const stallLines = [
-//     "Still fetching the stories, dear…",
-//     "Almost there, just warming up the kettle…",
-//     "One moment, sweet pea—lining up the pages…"
-//   ];
-//   let stallIdx = 0;
-
-//   while (!shouldStop) {
-//     // ✅ Prefer summaries when available
-//     if (nanaItems.length > currentNanaIndex) {
-//       const idx = currentNanaIndex;
-//       const item = nanaItems[idx];
-//       const preface = (idx === 0)
-//         ? "Okay, here’s the first article."
-//         : "Here’s the next one.";
-
-//       const speech = `${preface} ${item.title}. ${item.summary || ''}`;
-//       console.log("🗣️ Nana speaking:", speech.slice(0, 500));
-
-//       currentNanaIndex = idx;     // ensure index is consistent during speak
-//       await speakText(speech);
-//       currentNanaIndex = idx + 1; // advance after speaking
-//       continue;                   // loop back and check for more summaries
-//     }
-
-//     // ❌ No summaries buffered yet
-//     if (!nanaIsPreparing) break;  // producer is done → stop stalling
-
-//     // Stall once, then re-check
-//     const line = stallLines[stallIdx++ % stallLines.length];
-//     await speakText(line);
-//     await new Promise(r => setTimeout(r, 1200));
-//   }
-
-//   // wrap up (only if not hard-stopped)
-//   if (!shouldStop) {
-//     nanaIsPlaying = false;
-//     currentNanaIndex = 0;
-//     setNanaBtnLabel();
-//     const status = document.getElementById('status');
-//     if (status) status.textContent = '✔️ Nana finished.';
-//   }
 }
 
 
-
-async function fetchTodaySummaries() {
-  console.log("📥 Fetching today’s summaries (read-only)...");
-  const res = await fetch('/.netlify/functions/getSummaries', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({})
-  });
-  if (!res.ok) {
-    console.warn("⚠️ getSummaries failed:", res.status);
-    return [];
-  }
-  const out = await res.json().catch(() => ({}));
-  const items = Array.isArray(out?.items) ? out.items : [];
-  console.log("📦 getSummaries items:", items.map(i => i.title));
-  return items;
-}
-
-async function playSummariesOnce() {
-  playMode = 'nana';
-  nanaIsPlaying = true;
-  shouldStop = false;
-  setNanaBtnLabel();
-
-  for (let i = 0; i < nanaItems.length; i++) {
-    if (shouldStop) break;
-    const it = nanaItems[i];
-    const preface = (i === 0) ? "Okay, here’s the first article." : "Here’s the next one.";
-    const speech = `${preface} ${it.title}. ${it.summary || ''}`;
-    console.log("🗣️ Reading summary:", { i, title: it.title, len: speech.length });
-    currentNanaIndex = i;
-    await speakText(speech);
-  }
-
-  nanaIsPlaying = false;
-  currentNanaIndex = 0;
-  setNanaBtnLabel();
-  const status = document.getElementById('status');
-  if (status) status.textContent = '✔️ Nana finished today’s summaries.';
-}
