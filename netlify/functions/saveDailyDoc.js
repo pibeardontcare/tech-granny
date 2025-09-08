@@ -127,10 +127,18 @@ export async function handler(event) {
     const title = docTitleFor(key);
 
     const auth = oauth();
-    await auth.getAccessToken(); // early fail if creds bad
+    await auth.getAccessToken(); 
 
+    const { token } = await auth.getAccessToken();
+    console.log('[oauth] got access token?', Boolean(token));
     const drive = google.drive({ version: 'v3', auth });
     const docs  = google.docs({ version: 'v1', auth });
+
+
+    const oauth2 = google.oauth2({ version: 'v2', auth });
+    const info = await oauth2.tokeninfo({ access_token: token });
+    console.log('[oauth] scopes:', info.data.scope);
+    console.log('[oauth] user:', (await drive.about.get({ fields: 'user(emailAddress,displayName)' })).data.user);
 
     const docId = await ensureDailyDoc(drive, docs, title);
 
@@ -154,6 +162,9 @@ export async function handler(event) {
     return json(200, { ok: true, url: file.webViewLink, added: toAppend.length, skipped: articles.length - toAppend.length, title });
 
   } catch (e) {
-    return json(500, { ok: false, error: e.message });
+    const code = e.code || e.response?.status || 500;
+    const data = e.response?.data || null;
+    console.error('[saveDailyDoc ERROR]', { message: e.message, code, data });
+    return json(code, { ok: false, error: e.message, data });
   }
 }

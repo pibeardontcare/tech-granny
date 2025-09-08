@@ -38,7 +38,7 @@ let nanaIsPlaying = false;
 let nanaIsPreparing = false;
 let nanaIsPaused = false;
 let isSpeaking = false;
-let useElevenLabs = true; 
+let useElevenLabs = false; 
 let currentAudio = null;
 let currentSpeakingId = 0;
 
@@ -146,12 +146,12 @@ async function runNanaTake() {
 
     // Start playback immediately if server says doc already existed,
     // otherwise start if we have items and we're not already playing.
-    if (out.playNow || (nanaItems.length && !nanaIsPlaying && !shouldStop)) {
-      currentNanaIndex = 0;
-      //startNanaPlayback();
-      stallOrPlaySummaries();
+    // if (out.playNow || (nanaItems.length && !nanaIsPlaying && !shouldStop)) {
+    //   currentNanaIndex = 0;
+    //   //startNanaPlayback();
+    //   stallOrPlaySummaries();
 
-    }
+    // }
 
     if (status) status.textContent =
       `Nana explained ${nanaItems.length || 0} article(s).`;
@@ -483,10 +483,11 @@ window.addEventListener('DOMContentLoaded', () => {
       if (shouldStop) break;
       const it = nanaItems[i];
       const preface = (i === 0) ? "Okay, here’s the first article." : "Here’s the next one.";
-      const speech = `${preface} ${it.title}. ${it.summary || ''}`;
+      // const speech = `${preface} ${it.title}. ${it.summary || ''}`;
+      const speech = `${preface} ${it.summary || ''}`;
       console.log("🗣️ Reading summary:", { i, title: it.title, len: speech.length });
       currentNanaIndex = i;
-      await speakText(speech);
+      await speakText(speech, { interrupt: true });
     }
 
     nanaIsPlaying = false;
@@ -541,6 +542,7 @@ const existing = await fetchTodaySummaries();
 if (existing.length) {
   nanaItems = existing.map(it => ({ title: it.title, summary: it.summary }));
   console.log("✅ Playing existing summaries");
+  cancelSpeaking();
   await playSummariesOnce();
   return;
 }
@@ -554,18 +556,12 @@ setNanaBtnLabel();
 const genPromise = runNanaTake();
 
 // Speak up to 5 “getting ready” lines, but stop early as soon as summaries arrive
-const chatter = [
-  "Now hang on while I get my glasses…",
-  "Sometimes it just takes me a minute to read all these articles…",
-  "You know, I’m retired. I’ve got all the time in the world to read, just give me a second.",
-  "Oooh! So many headlines today. Let me skim through them real quick.",
-  "Don’t rush me dear, I want to make sure I understand everything before I explain it to you."
-];
-
-for (let i = 0; i < chatter.length; i++) {
-  if (nanaItems.length) break;   // stop stall if summaries show up mid-way
-  await speakText(chatter[i]);
-}
+ if (enableNanaStall) {
+   for (let i = 0; i < 5; i++) {            // hard cap
+     if (nanaItems.length) break;
+     await speakStallMp3();                  // uses cached mp3
+   }
+ }
 
 // Ensure the generator is finished if it wasn’t done during chatter
 await genPromise;
@@ -575,54 +571,12 @@ setNanaBtnLabel();
 // If summaries arrived, start playing immediately
 if (nanaItems.length) {
   console.log("✅ Summaries ready. Playing now...");
+  cancelSpeaking();
   await playSummariesOnce();
   return;
 }
 
     
-//     // 2) Otherwise, fall back to creating today’s summaries (with stall chatter)
-// console.log("🛠️ No existing summaries. Creating via runNanaTake()...");
-// nanaIsPreparing = true;
-
-// // 2a) Stall with Nana chatter while preparing summaries
-// const chatter = [
-//   "Now hang on while I get my glasses…",
-//   "Sometimes it just takes me a minute to read all these articles…",
-//   "You know, I’m retired. I’ve got all the time in the world to read, just give me a second.",
-//   "Oooh! So many headlines today. Let me skim through them real quick.",
-//   "Don’t rush me dear, I want to make sure I understand everything before I explain it to you."
-// ];
-// for (let i = 0; i < chatter.length; i++) {
-//   if (nanaItems.length) break; // in case summaries finish fast
-//   await speakText(chatter[i]);
-// }
-
-// await runNanaTake();   // your pipeline that fills nanaItems or writes the doc
-// nanaIsPreparing = false;
-
-    
-    
-    
-//       // const existing = await fetchTodaySummaries();
-//       // if (existing.length) {
-//       //   nanaItems = existing.map(it => ({ title: it.title, summary: it.summary }));
-//       //   console.log("✅ Playing existing summaries");
-//       //   await playSummariesOnce();
-//       //   return;
-//       // }
-
-//       // // 2) Otherwise, fall back to creating today’s summaries (no stall chatter)
-//       // console.log("🛠️ No existing summaries. Creating via runNanaTake()...");
-//       // nanaIsPreparing = true;
-//       // await runNanaTake();   // your pipeline that fills nanaItems or writes the doc
-//       // nanaIsPreparing = false;
-
-
-
-//////
-
-
-/////
 
 
       // If the creator didn't populate nanaItems, try fetching once more from Google
@@ -872,32 +826,69 @@ console.log(`🔍 Raw result for ${article.title}:`, result);
 
 
 
+// ===== Voice config (top of file with other globals) =====
 
-async function speakText(text) {
-//dont cancel
+let enableNanaStall = true; // flip to false to disable stall chatter entirely
 
-  const speakId = ++currentSpeakingId; 
-  isSpeaking = true;
+const STALL_MP3S = [
+  '/audio/glasses.mp3',   // “Hang on, honey… let me find my glasses.”
+  '/audio/notes.mp3',     // “Now where did I put my notes…”
+  '/audio/many.mp3',   // “Give Nana a tick… tidying these clippings.”
+  '/audio/retired.mp3',    // “Just a moment… almost ready.”
+  '/audio/rush.mp3'     // “Let me warm up my voice…”
+];
 
-  try {
-    if (useElevenLabs) {
-      await speakWithElevenLabs(text, speakId);
-    } else {
-      await speakWithBrowserTTS(text, speakId);
-    }
-  } catch (err) {
-    console.warn("🟡 Preferred voice failed, falling back", err);
-    if (useElevenLabs) {
-      await speakWithBrowserTTS(text, speakId); // fallback
-    } else {
-      console.warn("⚠️ Both voice systems failed.");
-    }
-  } finally {
-    if (speakId === currentSpeakingId) {
-      isSpeaking = false;
-    }
-  }
+// Preload audio elements
+const stallAudios = STALL_MP3S.map(url => {
+  const a = new Audio(url);
+  a.preload = 'auto';
+  return a;
+});
+
+// small helper so Audio() plays as a promise
+function playAudio(el, speakId) {
+  return new Promise((resolve) => {
+    el.onended = () => { if (speakId === currentSpeakingId) resolve(); };
+    el.onerror = resolve;
+    el.currentTime = 0;
+    el.play().catch(() => resolve());
+  });
 }
+
+async function speakStallMp3() {
+  const speakId = ++currentSpeakingId;
+  const el = stallAudios[Math.floor(Math.random() * stallAudios.length)];
+  currentAudio = el;               // so cancelSpeaking() can stop it
+  console.log('🟦 stall mp3 start', el.src);
+  await playAudio(el, speakId);
+  console.log('🟦 stall mp3 end');
+}
+
+
+
+
+async function speakText(text, { interrupt = false } = {}) {
+   if (interrupt) cancelSpeaking();
+   const speakId = ++currentSpeakingId;
+   isSpeaking = true;
+   try {
+     if (useElevenLabs) {
+       await speakWithElevenLabs(text, speakId);
+     } else {
+       await speakWithBrowserTTS(text, speakId);
+     }
+   } catch (err) {
+     console.warn("🟡 Preferred voice failed, falling back", err);
+     if (useElevenLabs) {
+       await speakWithBrowserTTS(text, speakId);
+     } else {
+       console.warn("⚠️ Both voice systems failed.");
+     }
+   } finally {
+     if (speakId === currentSpeakingId) isSpeaking = false;
+   }
+}
+
 
 
 function getPreferredVoice() {
